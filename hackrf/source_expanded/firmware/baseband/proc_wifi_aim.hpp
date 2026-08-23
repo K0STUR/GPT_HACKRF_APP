@@ -20,6 +20,7 @@ class WifiAimProcessor : public BasebandProcessor {
     static constexpr std::size_t baseband_fs = 20'000'000;
     static constexpr std::size_t kCaptureSamples = 20'000;   // 1.00 ms @ 20 MS/s
     static constexpr std::size_t kPretriggerSamples = 2'048; // one DMA block of history
+    static constexpr uint16_t kDiagCaptureStride = 16;       // throttle failed-capture telemetry
 
     enum class State : uint8_t { Warmup, Waiting, Capturing, Cooldown };
 
@@ -39,7 +40,12 @@ class WifiAimProcessor : public BasebandProcessor {
     uint16_t decode_successes_{0};
 
     wifiaim::M4WifiDecoder decoder_{};
-    FskPacketData packet_{};
+
+    // FSKRxPacketMessage carries a pointer to FskPacketData. Keep AP reports
+    // and telemetry in separate backing stores so a retune ACK cannot overwrite
+    // a freshly queued AP payload before M0 consumes it.
+    FskPacketData ap_packet_{};
+    FskPacketData diag_packet_{};
 
     uint32_t block_power(const buffer_c8_t& buffer) const;
     void remember_pretrigger(const buffer_c8_t& buffer);
@@ -47,7 +53,7 @@ class WifiAimProcessor : public BasebandProcessor {
     void finish_capture();
     void reset_detector();
     void send_diag_state();
-    void send_wire_report(const wifiaim::WireApReport& wire);
+    void send_wire_report(const wifiaim::WireApReport& wire, FskPacketData& storage);
 
     // These threads auto-start in their constructors. Keep them LAST so every
     // state/buffer used by execute() is initialized before the DMA thread runs.
