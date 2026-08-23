@@ -71,38 +71,17 @@ void WifiAimView::tune_channel(uint8_t ch) {
     if (decoder_enabled_) { set_decoder(false); set_decoder(true); }
 }
 
-uint16_t WifiAimView::scan_capture_delta() const {
-    return static_cast<uint16_t>((diag_capture_total_ - scan_capture_base_) & 0x3FFFu);
-}
-
-uint16_t WifiAimView::scan_decode_delta() const {
-    return static_cast<uint16_t>((diag_decode_total_ - scan_decode_base_) & 0x3FFFu);
-}
-
-void WifiAimView::update_scan_status() {
-    if (!scanning_) return;
-    text_status.set("S " + to_string_dec_uint(scan_channel_) + "/13 C" +
-                    to_string_dec_uint(scan_capture_delta()) + " D" +
-                    to_string_dec_uint(scan_decode_delta()) + " M" +
-                    to_string_dec_uint(diag_ack_channel_));
-}
-
 void WifiAimView::start_scan() {
     ap_count_ = 0; selected_ = 0; target_set_ = false;
     target_level_count_ = target_level_pos_ = 0; peak_x10_ = -1200; ref_valid_ = false;
-    scan_capture_base_ = diag_capture_total_;
-    scan_decode_base_ = diag_decode_total_;
-    diag_ack_channel_ = 0;
     scanning_ = true; scan_channel_ = 1; timer_ms_ = 0;
     tune_channel(scan_channel_); set_decoder(true);
-    update_scan_status();
+    text_status.set("SCAN CH1/13...");
 }
 
 void WifiAimView::end_scan() {
     scanning_ = false; set_decoder(false);
-    text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
-                    to_string_dec_uint(scan_capture_delta()) + " D" +
-                    to_string_dec_uint(scan_decode_delta()));
+    text_status.set("Scan done: " + to_string_dec_uint(ap_count_) + " AP");
     update_ap_display();
 }
 
@@ -132,13 +111,11 @@ void WifiAimView::on_frame_sync() {
     constexpr uint32_t frame_ms = 17;
     if (scanning_) {
         timer_ms_ += frame_ms;
-        // Fix6 used 450 ms/channel. Use a full second while debugging the real
-        // decoder so normal 100 ms beacon intervals give us several chances.
-        if (timer_ms_ >= 1000) {
+        if (timer_ms_ >= 450) {
             timer_ms_ = 0;
             if (scan_channel_ >= 13) { end_scan(); return; }
             ++scan_channel_; tune_channel(scan_channel_);
-            update_scan_status();
+            text_status.set("SCAN CH" + to_string_dec_uint(scan_channel_) + "/13...");
         }
         return;
     }
@@ -147,20 +124,6 @@ void WifiAimView::on_frame_sync() {
         auto_phase_ms_ = (auto_phase_ms_ + frame_ms) % 500;
         set_decoder(auto_phase_ms_ < 300);
     }
-}
-
-void WifiAimView::on_diag(const HunterTriggerMessage* msg) {
-    if (!msg) return;
-    const uint32_t v = msg->energy;
-    const uint32_t marker = v & 0xF0000000u;
-    if (marker == 0xF0000000u) {
-        const uint8_t ch = static_cast<uint8_t>(v & 0xFFu);
-        if (ch >= 1 && ch <= 13) diag_ack_channel_ = ch;
-    } else if (marker == 0xC0000000u) {
-        diag_capture_total_ = static_cast<uint16_t>((v >> 14) & 0x3FFFu);
-        diag_decode_total_ = static_cast<uint16_t>(v & 0x3FFFu);
-    }
-    update_scan_status();
 }
 
 void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
