@@ -1,0 +1,291 @@
+name: Build WiFi AIM n_260808 Fix7b FSK diagnostics
+
+on:
+  pull_request:
+    paths:
+      - 'hackrf/FIX7B_TRIGGER.txt'
+      - 'hackrf/source_expanded/firmware/application/external/wifi_aim/**'
+      - 'hackrf/source_expanded/firmware/baseband/proc_wifi_aim.*'
+      - 'hackrf/source_expanded/firmware/common/wifi_aim_wire.hpp'
+      - 'hackrf/source_expanded/firmware/common/wifi_aim/**'
+      - '.github/workflows/build_wifi_aim_full_n260808_fix7b.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Fix7b sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wifi_src
+          mkdir -p wifi_src/firmware/application/external wifi_src/firmware/baseband wifi_src/firmware/common
+          cp -a hackrf/source_expanded/firmware/application/external/wifi_aim wifi_src/firmware/application/external/
+          cp hackrf/source_expanded/firmware/baseband/proc_wifi_aim.* wifi_src/firmware/baseband/
+          cp hackrf/source_expanded/firmware/common/wifi_aim_wire.hpp wifi_src/firmware/common/
+          cp -a hackrf/source_expanded/firmware/common/wifi_aim wifi_src/firmware/common/
+          grep -q 'kPretriggerSamples' wifi_src/firmware/baseband/proc_wifi_aim.hpp
+          grep -q 'send_diag_state' wifi_src/firmware/baseband/proc_wifi_aim.cpp
+          grep -q 'capture_total' wifi_src/firmware/common/wifi_aim_wire.hpp
+          grep -q 'version{3}' wifi_src/firmware/common/wifi_aim_wire.hpp
+          grep -q 'timer_ms_ >= 1000' wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp
+          if grep -q 'Message::ID::HunterTrigger' wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.hpp; then
+            echo 'Fix7b must not add a HunterTrigger handler to M0' >&2
+            exit 1
+          fi
+
+      - name: Remove non-stock MAC formatter dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          ui=Path('wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp')
+          s=ui.read_text()
+          anchor='namespace ui::external_app::wifi_aim {'
+          assert anchor in s
+          helper=r'''
+
+          static std::string wifi_aim_local_mac_string(const uint8_t* mac, uint8_t length, bool noColon) {
+              if (!mac || length == 0) return {};
+              if (length > 6) length = 6;
+              constexpr char digits[] = "0123456789ABCDEF";
+              char out[18]{};
+              size_t pos = 0;
+              for (uint8_t i = 0; i < length; ++i) {
+                  if (i && !noColon) out[pos++] = ':';
+                  out[pos++] = digits[(mac[i] >> 4) & 0x0F];
+                  out[pos++] = digits[mac[i] & 0x0F];
+              }
+              out[pos] = '\0';
+              return std::string(out);
+          }
+          '''
+          s=s.replace(anchor,anchor+helper,1)
+          n=s.count('to_string_mac_address(')
+          assert n > 0
+          s=s.replace('to_string_mac_address(','wifi_aim_local_mac_string(')
+          assert 'to_string_mac_address(' not in s
+          ui.write_text(s)
+          print('patched_mac_calls=', n)
+          PY
+
+      - name: Checkout exact stock Mayhem n_260808 twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem_stock
+          (cd mayhem_stock && git checkout nightly-tag-2026-08-08 && git submodule update --init --recursive && test "$(git rev-parse HEAD)" = "367eaf54c0f51f62448d9f2d9585fd3629f6b770")
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem_mod
+          (cd mayhem_mod && git checkout nightly-tag-2026-08-08 && git submodule update --init --recursive && test "$(git rev-parse HEAD)" = "367eaf54c0f51f62448d9f2d9585fd3629f6b770")
+
+      - name: Build official Mayhem toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd mayhem_stock
+          docker build -t portapack-dev -f dockerfile-nogit .
+
+      - name: Build untouched stock and capture ABI baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd mayhem_stock
+          mkdir -p build
+          docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc \
+            "arm-none-eabi-nm -n -S /havoc/build/firmware/application/application.elf" > ../stock_nm.txt
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc \
+            "arm-none-eabi-objdump -h /havoc/build/firmware/application/application.elf" > ../stock_sections.txt
+          cd ..
+
+      - name: Integrate Fix7b isolated external app and WAIM baseband
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a wifi_src/firmware/application/external/wifi_aim mayhem_mod/firmware/application/external/
+          cp wifi_src/firmware/baseband/proc_wifi_aim.* mayhem_mod/firmware/baseband/
+          cp wifi_src/firmware/common/wifi_aim_wire.hpp mayhem_mod/firmware/common/
+          cp -a wifi_src/firmware/common/wifi_aim mayhem_mod/firmware/common/
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('mayhem_mod')
+
+          p=root/'firmware/application/external/external.cmake'; s=p.read_text()
+          a='  external/signal_hunter/ui_signal_hunter.cpp'
+          if 'external/wifi_aim/main.cpp' not in s:
+              s=s.replace(a,a+'\n\n  #wifi_aim\n  external/wifi_aim/main.cpp\n  external/wifi_aim/ui_wifi_aim.cpp',1)
+          la='  signal_hunter\n'
+          if '\twifi_aim\n' not in s and '  wifi_aim\n' not in s:
+              s=s.replace(la,la+'\twifi_aim\n',1)
+          p.write_text(s)
+
+          p=root/'firmware/application/external/external.ld'; s=p.read_text()
+          ma='    ram_external_app_tetra_rx              (rwx) : org = 0xAE0C0000, len = 32k'
+          if 'ram_external_app_wifi_aim' not in s:
+              s=s.replace(ma,ma+'\n    ram_external_app_wifi_aim              (rwx) : org = 0xAE0D0000, len = 32k',1)
+          sa='} > ram_external_app_signal_hunter'
+          if '.external_app_wifi_aim' not in s:
+              block='''\n\n    .external_app_wifi_aim : ALIGN(4) SUBALIGN(4)\n    {\n        KEEP(*(.external_app.app_wifi_aim.application_information));\n        */external/wifi_aim/*(.text* .rodata* .data* .gnu.linkonce* .ARM.extab* .ARM.exidx*);\n        . = ALIGN(4);\n    } > ram_external_app_wifi_aim'''
+              s=s.replace(sa,sa+block,1)
+          p.write_text(s)
+
+          p=root/'firmware/tools/external_app_info.py'; s=p.read_text()
+          s=s.replace('external_apps_address_end = 0xAE0B0000','external_apps_address_end = 0xAE0E0000')
+          p.write_text(s)
+
+          p=root/'firmware/baseband/CMakeLists.txt'; s=p.read_text(); a='DeclareTargets(HUNT signal_hunter)'
+          if 'DeclareTargets(WAIM wifi_aim)' not in s:
+              s=s.replace(a,a+'''\n\n### WiFi AIM\nset(MODE_FLAGS "-Os")\nset(MODE_CPPSRC\n    proc_wifi_aim.cpp\n    ${COMMON}/wifi_aim/wifi_aim_phy.cpp\n)\nDeclareTargets(WAIM wifi_aim)\nset(MODE_FLAGS "-O3")''',1)
+          p.write_text(s)
+          PY
+
+      - name: Build modified Fix7b tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=hackrf/build_results/wifi_aim_full_n260808_fix7b
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          cd mayhem_mod
+          mkdir -p build
+          set -o pipefail
+          docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev 2>&1 | tee ../fix7b_build.log
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc \
+            "arm-none-eabi-nm -n -S /havoc/build/firmware/application/application.elf" > ../mod_nm.txt
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc \
+            "arm-none-eabi-objdump -h /havoc/build/firmware/application/application.elf" > ../mod_sections.txt
+          cd ..
+          cp fix7b_build.log "$OUT/BUILD.log"
+          cp stock_nm.txt mod_nm.txt stock_sections.txt mod_sections.txt "$OUT"/
+          cp mayhem_stock/build/firmware/application/application.map "$OUT/stock_application.map"
+          cp mayhem_mod/build/firmware/application/application.map "$OUT/mod_application.map"
+
+      - name: Hardened stock ABI audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=hackrf/build_results/wifi_aim_full_n260808_fix7b
+          cp mayhem_mod/build/firmware/application/wifi_aim.ppma /tmp/in.ppma
+          cp mayhem_mod/build/firmware/baseband/WAIM.bin "$OUT/WAIM.bin"
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct, hashlib, base64, collections
+
+          OUT=Path('hackrf/build_results/wifi_aim_full_n260808_fix7b')
+          MACSYM='_Z21to_string_mac_addressB5cxx11PKhhb'
+          EXPECTED_VERSION=0x86B64C1D
+
+          def read_nm(path):
+              by_name={}; by_addr={}
+              for line in Path(path).read_text(errors='ignore').splitlines():
+                  p=line.split(None,3)
+                  if len(p)!=4: continue
+                  try: addr=int(p[0],16); size=int(p[1],16)
+                  except: continue
+                  typ,name=p[2],p[3]
+                  if typ not in 'TtWwDdBbRrVv': continue
+                  by_name.setdefault(name,[]).append((addr,size,typ))
+                  by_addr.setdefault(addr,[]).append(name)
+              return by_name,by_addr
+          def core(a):
+              return (0<=a<0x00100000 or 0x10000000<=a<0x10080000 or 0x20000000<=a<0x20040000)
+
+          sn,sa=read_nm('stock_nm.txt'); mn,ma=read_nm('mod_nm.txt')
+          shared=[]; drift=[]
+          for name,sv in sn.items():
+              mv=mn.get(name)
+              if len(sv)!=1 or not mv or len(mv)!=1: continue
+              x,y=sv[0],mv[0]
+              if not core(x[0]): continue
+              shared.append((name,x[0]))
+              if x[0]!=y[0]: drift.append((name,x,y))
+          drift.sort(key=lambda x:x[1][0])
+
+          src=bytearray(Path('/tmp/in.ppma').read_bytes())
+          mem,entry,hdr,ver=struct.unpack_from('<IIII',src,0)
+          tag=bytes(src[76:80]); m4off=struct.unpack_from('<I',src,80)[0]
+          patches=[]; same=[]; unresolved=[]; ambiguous=[]; drift_refs=[]
+          drift_mod={x[2][0]:x for x in drift}
+          if m4off%4==0:
+              for off in range(0,m4off,4):
+                  val=struct.unpack_from('<I',src,off)[0]; thumb=val&1; base=val&~1
+                  if base in drift_mod: drift_refs.append((off,val,drift_mod[base]))
+                  names=ma.get(base,[])
+                  if not names or 0x10080000<=base<0x10090000: continue
+                  candidates=[]; missing=[]
+                  for name in names:
+                      if name in sn: candidates.extend(x[0] for x in sn[name])
+                      else: missing.append(name)
+                  candidates=sorted(set(candidates))
+                  if len(candidates)==1:
+                      newval=candidates[0]|thumb
+                      if newval!=val:
+                          patches.append((off,val,newval,names))
+                          struct.pack_into('<I',src,off,newval)
+                      elif core(base): same.append((off,val,names))
+                  elif len(candidates)>1: ambiguous.append((off,val,names,candidates))
+                  elif missing and core(base): unresolved.append((off,val,missing))
+
+          body=src[:-4]
+          if len(body)%4==0:
+              total=sum(struct.unpack_from('<I',body,i)[0] for i in range(0,len(body),4))&0xffffffff
+              struct.pack_into('<I',src,len(src)-4,(-total)&0xffffffff)
+          final=sum(struct.unpack_from('<I',src,i)[0] for i in range(0,len(src),4))&0xffffffff if len(src)%4==0 else 1
+
+          out=OUT/'WiFiAIM_n260808_fix7b.ppma'; out.write_bytes(src)
+          sha=hashlib.sha256(src).hexdigest()
+          op_stock=[x[0] for x in sn.get('_Znwj',[])]
+          op_mod=[x[0] for x in mn.get('_Znwj',[])]
+          mac_stock=[x[0] for x in sn.get(MACSYM,[])]
+          mac_mod=[x[0] for x in mn.get(MACSYM,[])]
+          types=collections.Counter((x[1][2],x[2][2]) for x in drift)
+
+          report=[
+            f'size={len(src)}', f'memory=0x{mem:08X}', f'entry=0x{entry:08X}', f'header={hdr}',
+            f'version=0x{ver:08X}', f'tag={tag!r}', f'm4_offset={m4off}',
+            f'shared_core_symbol_count={len(shared)}', f'core_symbol_drift_count={len(drift)}',
+            f'drift_reference_count={len(drift_refs)}', f'drift_type_pairs={dict(types)!r}',
+            f'patch_count={len(patches)}', f'resolved_same_core_reference_count={len(same)}',
+            f'ambiguous_count={len(ambiguous)}', f'unresolved_count={len(unresolved)}',
+            f'final_checksum=0x{final:08X}',
+            'stock_operator_new='+','.join(hex(x) for x in op_stock),
+            'mod_operator_new='+','.join(hex(x) for x in op_mod),
+            'stock_to_string_mac_address='+','.join(hex(x) for x in mac_stock),
+            'mod_to_string_mac_address='+','.join(hex(x) for x in mac_mod),
+            'sha256='+sha]
+          for x in drift[:220]: report.append('CORE_DRIFT '+repr(x))
+          for x in drift_refs[:100]: report.append('DRIFT_REF '+repr(x))
+          for x in patches[:100]: report.append('PATCH '+repr(x))
+          for x in ambiguous[:50]: report.append('AMBIG '+repr(x))
+          for x in unresolved[:50]: report.append('UNRES '+repr(x))
+
+          ok=(len(src)<32768 and len(src)>=88 and hdr==3 and ver==EXPECTED_VERSION and tag==b'WAIM' and
+              (entry&1)==1 and mem<=(entry&~1)<mem+m4off and 84<=m4off<len(src)-4 and m4off%4==0 and final==0 and
+              len(shared)>0 and not drift and not drift_refs and not patches and len(same)>0 and not unresolved and not ambiguous and
+              op_stock==[0x7ee24] and op_mod==[0x7ee24] and not mac_stock and not mac_mod)
+          report.append('RESULT='+('PASS' if ok else 'FAIL'))
+          (OUT/'VERIFY.txt').write_text('\n'.join(report)+'\n')
+          (OUT/'SHA256SUMS.txt').write_text(f'{sha}  WiFiAIM_n260808_fix7b.ppma\n')
+          (OUT/'WiFiAIM_n260808_fix7b.ppma.b64').write_text(base64.b64encode(src).decode())
+          (OUT/'STATUS.txt').write_text('WiFi AIM n_260808 Fix7b\nRESULT='+('PASS' if ok else 'FAIL')+'\n')
+          print('\n'.join(report[:80]))
+          PY
+
+      - name: Upload Fix7b evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wifi-aim-full-n260808-fix7b
+          path: hackrf/build_results/wifi_aim_full_n260808_fix7b/*
+          if-no-files-found: warn
+
+      - name: Require static PASS
+        shell: bash
+        run: |
+          grep -q '^RESULT=PASS$' hackrf/build_results/wifi_aim_full_n260808_fix7b/VERIFY.txt
