@@ -132,8 +132,7 @@ void WifiAimView::on_frame_sync() {
     constexpr uint32_t frame_ms = 17;
     if (scanning_) {
         timer_ms_ += frame_ms;
-        // Fix6 used 450 ms/channel. Use a full second while debugging the real
-        // decoder so normal 100 ms beacon intervals give us several chances.
+        // Give normal ~100 ms beacon intervals several chances per channel.
         if (timer_ms_ >= 1000) {
             timer_ms_ = 0;
             if (scan_channel_ >= 13) { end_scan(); return; }
@@ -149,25 +148,21 @@ void WifiAimView::on_frame_sync() {
     }
 }
 
-void WifiAimView::on_diag(const HunterTriggerMessage* msg) {
-    if (!msg) return;
-    const uint32_t v = msg->energy;
-    const uint32_t marker = v & 0xF0000000u;
-    if (marker == 0xF0000000u) {
-        const uint8_t ch = static_cast<uint8_t>(v & 0xFFu);
-        if (ch >= 1 && ch <= 13) diag_ack_channel_ = ch;
-    } else if (marker == 0xC0000000u) {
-        diag_capture_total_ = static_cast<uint16_t>((v >> 14) & 0x3FFFu);
-        diag_decode_total_ = static_cast<uint16_t>(v & 0x3FFFu);
-    }
-    update_scan_status();
-}
-
 void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
     if (!msg || !msg->packet || msg->packet->dataLen < sizeof(wifiaim::WireApReport)) return;
     wifiaim::WireApReport w{};
     std::memcpy(&w, msg->packet->data, sizeof(w));
-    if (std::memcmp(w.magic, "WAIM", 4) != 0 || w.version != 2 || w.channel < 1 || w.channel > 13) return;
+    if (std::memcmp(w.magic, "WAIM", 4) != 0 || w.version != 3 || w.channel < 1 || w.channel > 13) return;
+
+    // Fix7b transports diagnostics over the existing FSKPacket message path.
+    // This avoids adding a HunterTrigger MessageHandlerRegistration to M0.
+    diag_capture_total_ = static_cast<uint16_t>(w.capture_total & 0x3FFFu);
+    diag_decode_total_ = static_cast<uint16_t>(w.decode_total & 0x3FFFu);
+    diag_ack_channel_ = w.channel;
+    update_scan_status();
+
+    // bit7 marks a diagnostics-only packet; it is not an access point report.
+    if (w.flags & 0x80u) return;
 
     std::size_t ap_index = ap_count_;
     for (std::size_t i = 0; i < ap_count_; ++i) {
