@@ -6,12 +6,11 @@ First read, in this exact order:
 1. `hackrf/README.md`
 2. `hackrf/PROJECT_STATUS.md`
 3. `hackrf/TEST_LOG.md`
-4. `hackrf/build_results/wifi_aim_full_n260808_fix7/VERIFY.txt`
-5. `hackrf/HANDOVER_MASTER.md`
-6. `hackrf/WIFI_AIM_SPEC.md`
-7. inspect `hackrf/source_expanded/`
+4. `hackrf/HANDOVER_MASTER.md`
+5. `hackrf/WIFI_AIM_SPEC.md`
+6. inspect `hackrf/source_expanded/`
 
-Do not restart the project from scratch. The old repository `K0STUR/GPT` is now reserved for FORDstecki only; all HackRF work belongs in `K0STUR/GPT_HACKRF_APP`.
+Do not restart the project from scratch. The old repository `K0STUR/GPT` is reserved for FORDstecki only; all HackRF work belongs in `K0STUR/GPT_HACKRF_APP`.
 
 ## Current device target
 Real PortaPack firmware:
@@ -27,79 +26,70 @@ Fix6 passed the hardened zero-drift stock-core ABI audit and was tested on the r
 Observed:
 - application opens normally,
 - no HardFault,
-- red RF/RSSI bar reacts to antenna presence/orientation,
-- `SCAN` completes but reports `0 AP`.
+- red RF/RSSI bar reacts to antenna,
+- SCAN completes but reports `0 AP`.
 
-Fix6 artifact:
-`hackrf/build_results/wifi_aim_full_n260808_fix6/WiFiAIM_n260808_fix6.ppma`
-
-SHA-256:
+Fix6 SHA-256:
 `4084904bb1d12229895066f0d1b3424c1dfb5a54fcf40705b6c4cae4f05fe225`
 
-Fix6 audit:
-- shared core symbols `7118`
-- core drift `0`
-- patch count `0`
-- ambiguous `0`
-- unresolved `0`
-- checksum `0`
-- RESULT `PASS`
+Therefore the loader/core-ABI problem is solved. Remaining failure is downstream in M4 capture / Wi-Fi PHY decode / reporting.
 
-Therefore the loader/core-ABI problem is solved. Current failure is downstream in M4 capture / Wi-Fi PHY decode / reporting.
+## Fix7 lesson
+Fix7 introduced the correct M4-side improvements (pre-trigger IQ, safer thread initialization, lower detector threshold, longer channel dwell and telemetry) but its extra M0 `HunterTrigger` message handler shifted 179 shared core symbols. Fix7 is archived and must not be hardware-tested.
 
-## Fix7 source changes
-Readable source in `hackrf/source_expanded/` adds:
-- 2048-sample pre-trigger IQ history,
-- safer M4 initialization order (`BasebandThread` and `RSSIThread` last),
-- lower capture threshold,
-- 1000 ms/channel scan dwell,
-- diagnostic `M/C/D` counters over the existing HunterTrigger ABI.
+## Current candidate — Fix7b STATIC PASS
+Fix7b keeps the useful Fix7 M4 changes but removes the new M0 HunterTrigger handler. `M/C/D` diagnostics are transported through the **existing Fix6 `FSKPacket` path**. `WireApReport.flags` bit1 denotes a diagnostic-only packet.
 
-Intended hardware meanings:
-- `M` follows channel -> M0-to-M4 control works,
-- `C=0` -> capture detector is not firing,
-- `C>0 D=0` -> captures occur but PHY rejects candidates,
-- `D>0` and `0 AP` -> investigate AP report/parser path.
+Fix7b CI:
+- PR `#4`
+- run `32671853658`
+- job `97273779780`
+- Actions `SUCCESS`
+- artifact ID `9501915159`
 
-## Critical current result — Fix7 MUST NOT be hardware-tested
-Fix7 CI run:
-- run `32666957127`
-- job `97261737292`
-
-The GitHub job completed, but the actual hardened audit in `VERIFY.txt` says:
-- size `23508`
-- memory `0x10083FEC`
-- entry `0x10084041`
-- M4 offset `7140`
-- shared core symbols `7118`
-- **core_symbol_drift_count `179`**
+Hardened audit:
+- size `23396`
+- memory `0x10083FE4`
+- entry `0x10084039`
+- M4 offset `7036`
+- shared core symbols `7086`
+- **core_symbol_drift_count `0`**
+- drift references `0`
 - patch count `0`
 - same-address core refs `80`
 - ambiguous `0`
 - unresolved `0`
 - checksum `0`
-- PPMA SHA-256 `cb1cab400ea934f3d0bf2d3116d624c3310375a7f7342a2c00b3ec4a4d71248f`
-- **RESULT `FAIL`**
+- stock/mod `_Znwj = 0x7ee24`
+- SHA-256 `730dee07e741cc5a2764dfcf9ffbae52622caf25a75ea6e94a7ffabbf9cb2b49`
+- **RESULT `PASS`**
 
-Complete Fix7 artifact is archived in:
-`hackrf/build_results/wifi_aim_full_n260808_fix7/`
-
-Do NOT put `WiFiAIM_n260808_fix7.ppma` on the PortaPack.
+The artifact was downloaded and independently rechecked; header/version/tag/M4 offset/Thumb entry/checksum/SHA all match CI.
 
 ## Exact next action
-Preserve the useful Fix7 capture/diagnostic changes, but restore Fix6's zero-drift M0/core layout.
+Hardware-test `WiFiAIM_n260808_fix7b.ppma` on stock `n_260808`.
 
-Investigate the first +4-byte core shift beginning around stock address `0x000A3C68`. Find which Fix7-added M0 object/data/rodata/message-handler registration escaped the external-app section, isolate it correctly, rebuild, and require all of:
-- `core_symbol_drift_count=0`
-- `patch_count=0`
-- `ambiguous_count=0`
-- `unresolved_count=0`
-- final checksum `0`
-- `RESULT=PASS`
+Installation:
+- do NOT flash firmware;
+- remove/move Fix6 from `/APPS` so there is only one WiFi AIM entry;
+- copy only Fix7b `.ppma` to `/APPS`;
+- do not copy `WAIM.bin` separately.
 
-Only then hardware-test the new candidate and read `M/C/D` during SCAN.
+During SCAN observe:
+- `M` = last channel acknowledged by M4,
+- `C` = capture attempts during the scan,
+- `D` = successful Wi-Fi PHY decodes during the scan.
+
+The scan lasts about 1 second/channel (~13 seconds total). Record the exact final text, e.g. `Done 0AP C123 D0`, and whether `M` follows the channel while scanning.
+
+Interpretation:
+- HardFault -> capture full register screen; this is a runtime regression despite static ABI PASS.
+- `M` follows + `C=0` -> detector/capture-start issue.
+- `C>0 D=0` -> capture works; next build instruments PHY stages: OFDM LTF -> SIGNAL -> rate -> Viterbi -> MAC parser and DSSS Barker/sync -> SFD -> PLCP -> MAC parser.
+- `D>0` but AP=0 -> investigate AP report/parser path.
+- AP>0 -> continue to exact SSID/BSSID TARGET -> AIM -> REF/DELTA REF.
 
 ## End goal
 `SCAN Wi-Fi by SSID -> choose exact BSSID -> TARGET -> AIM -> REF/DELTA REF`
 
-Requirements remain passive receive only, channels 1-13, Beacon + Probe Response parsing, hidden SSID handling, exact BSSID targeting, decoder OFF/AUTO/ON, and LIVE/AVG/PEAK/REF/DELTA REF. Relative signal is enough; do not claim calibrated dBm.
+Passive receive only, channels 1-13, Beacon + Probe Response parsing, hidden SSID handling, exact BSSID targeting, decoder OFF/AUTO/ON, and LIVE/AVG/PEAK/REF/DELTA REF. Relative signal is enough; do not claim calibrated dBm.
