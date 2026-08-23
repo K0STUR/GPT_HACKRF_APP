@@ -1,9 +1,8 @@
-name: One-time migrate HackRF project from GPT
+name: Migrate HackRF project from K0STUR/GPT
 
 on:
-  pull_request:
+  push:
     paths:
-      - 'MIGRATE_TRIGGER.txt'
       - '.github/workflows/migrate_from_gpt.yml'
   workflow_dispatch:
 
@@ -14,43 +13,48 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout destination repository main
+      - name: Checkout destination
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
 
-      - name: Clone source GPT repository
-        run: |
-          set -euo pipefail
-          git clone --depth 1 https://github.com/K0STUR/GPT.git /tmp/GPT_SOURCE
+      - name: Clone source repository
+        run: git clone --depth 1 https://github.com/K0STUR/GPT.git /tmp/source
 
-      - name: Replace destination contents with all non-FORDstecki non-workflow files
+      - name: Copy all HackRF/WiFi AIM project data
         shell: bash
         run: |
           set -euo pipefail
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.github' -exec rm -rf {} +
+          for p in hackrf build_results wifi_aim_n260808 wifi_src_chunks wifi_src_chunks8 wifi_aim_buildsrc_min.zip wifi_aim_buildsrc_min.zip.b64 wifi_aim_mayhem_v0.4_arm_source.zip trigger_wifi_aim_fix4.txt trigger_wifi_aim_probe.txt; do
+            if [ -e "/tmp/source/$p" ]; then rm -rf "$p"; cp -a "/tmp/source/$p" "$p"; fi
+          done
           mkdir -p .github/workflows
-          find .github -mindepth 1 -maxdepth 1 ! -name 'workflows' -exec rm -rf {} +
-          find .github/workflows -mindepth 1 -maxdepth 1 ! -name 'migrate_from_gpt.yml' -exec rm -rf {} +
-          rsync -a \
-            --exclude '.git' \
-            --exclude 'FORDstecki' \
-            --exclude '.github/workflows' \
-            /tmp/GPT_SOURCE/ ./
-          test -d hackrf
-          test ! -e FORDstecki
-          test -f .github/workflows/migrate_from_gpt.yml
-          echo 'Top-level migrated content:'
-          find . -mindepth 1 -maxdepth 2 -not -path './.git*' -print | sort
+          find /tmp/source/.github/workflows -maxdepth 1 -type f \( -iname '*hackrf*' -o -iname '*wifi*aim*' -o -iname '*ppma*' -o -iname '*veneer*' \) -print0 | while IFS= read -r -d '' f; do cp -a "$f" .github/workflows/; done
+          if [ -f /tmp/source/AGENTS.md ]; then cp -a /tmp/source/AGENTS.md ./AGENTS.md; fi
+          rm -f MIGRATION_TEST.txt MIGRATION_ACCESS_OK.txt .github/test.txt .github/workflows/x.txt
+          cat > README.md <<'EOF'
+          # GPT_HACKRF_APP
 
-      - name: Commit migrated snapshot
+          Development repository for the HackRF One + PortaPack Mayhem **WiFi AIM** application.
+
+          This repository was split from `K0STUR/GPT` so the HackRF/PortaPack project and its GitHub Actions builds are isolated from FORDstecki.
+
+          Start with:
+          - `hackrf/README.md`
+          - `hackrf/PROJECT_STATUS.md`
+          - `hackrf/NEXT_CHAT_PROMPT.md`
+          - `hackrf/TEST_LOG.md`
+
+          Current target: stock PortaPack Mayhem `n_260808` (`nightly-tag-2026-08-08`, commit `367eaf54c0f51f62448d9f2d9585fd3629f6b770`).
+          EOF
+
+      - name: Commit migration
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'ChatGPT Migration'
-          git config user.email 'actions@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git status --short
-          git commit -m 'Migrate HackRF project data from K0STUR/GPT [skip ci]'
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Migrate complete HackRF WiFi AIM project from K0STUR/GPT [skip ci]'
           git push origin HEAD:main
