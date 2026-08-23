@@ -1,0 +1,8 @@
+WiFi AIM n_260808 Fix7c
+CI run=32673931447
+CI job=97278879220
+artifact_id=9502420139
+artifact_name=wifi-aim-full-n260808-fix7b (workflow label inherited from Fix7b harness)
+source_head=f4eec354a321b699d2ff1bf8254ddca6ab80bf7a
+RESULT=PASS
+HARDWARE_TEST=PENDING
