@@ -1,6 +1,6 @@
 # WiFi AIM — hardware and build test log
 
-Updated: 2026-08-23
+Updated: 2026-08-24
 
 ## Test A — version mismatch
 A probe/full external app built for the wrong Mayhem nightly was copied to `/APPS`.
@@ -50,123 +50,163 @@ Offline verification passed loader invariants and device accepted the file, but 
 - lr `10083F3B`
 - pc `000001A4`
 
-Working probe used the corresponding core veneer around `0x0007EE25`, which strongly indicated modified-vs-stock core address drift.
+Working probe used the corresponding core veneer around `0x0007EE25`, strongly indicating modified-vs-stock core address drift.
 
 ## Test E — Fix4 external-section isolation
 Offline loader checks passed, but stock core parity failed (`stock_operator_new_match=False`).
 
-Conclusion: section isolation alone did not restore exact stock internal ABI addresses.
-
 ## Test F — Fix5 full import rebasing attempt
 Results:
 - 58 imports patched;
-- `operator new` corrected toward stock;
-- ambiguous count `0`;
-- unresolved count `1`;
-- unresolved symbol `_Z21to_string_mac_addressB5cxx11PKhhb`;
-- final checksum `0x00000000`;
+- ambiguous `0`;
+- unresolved `1`: `_Z21to_string_mac_addressB5cxx11PKhhb`;
+- checksum `0`;
 - RESULT `FAIL`.
-
-Conclusion: Fix5 supported the ABI-drift diagnosis but was not a clean stock-compatible candidate.
 
 ## Test G — narrow diagnostic `TEST_veneerpatch1`
 Static verification passed after 17 selected veneer patches.
-
 Hardware result: NOT RECORDED. Diagnostic only.
 
 ## Test H — matched custom firmware/APPS bundle `w_260822`
-A complete modified Mayhem firmware and WiFi AIM app were built together.
+Static build/loader verification passed. This route requires flashing matching custom firmware and is not the current route.
 
-Static build/loader verification passed. This route requires flashing the matched custom firmware and must not be mixed with stock `n_260808`.
+## Test I — Fix6 hardened zero-drift audit
+Workflow run `32631639944`: SUCCESS.
 
-Hardware result: NOT RECORDED.
-
-## Test I — Fix6 local-MAC + hardened zero-drift ABI audit
-Fix6 removed the external dependency on `to_string_mac_address` by formatting the BSSID locally inside the external app.
-
-Workflow run:
-`32631639944`
-
-Overall result:
-SUCCESS
-
-Final artifact:
-`build_results/wifi_aim_full_n260808_fix6/WiFiAIM_n260808_fix6.ppma`
-
-SHA-256:
+Artifact SHA-256:
 `4084904bb1d12229895066f0d1b3424c1dfb5a54fcf40705b6c4cae4f05fe225`
 
 Verification:
 - size `22720`
 - memory `0x10083EDC`
 - entry `0x10083F31`
+- version `0x86B64C1D`
+- M4 offset `6624`
+- shared core symbols `7118`
+- core drift `0`
+- patches `0`
+- ambiguous `0`
+- unresolved `0`
+- checksum `0`
+- stock/mod `_Znwj = 0x7ee24`
+- RESULT `PASS`
+
+## Test J — Fix6 real hardware: launch PASS, SCAN 0 AP
+User tested Fix6 on stock Mayhem `n_260808`.
+
+Observed:
+- app opens normally;
+- no HardFault;
+- red RF/RSSI bar responds to antenna;
+- SCAN completes but returns `0 AP`.
+
+Conclusion: loader/core ABI is solved on real hardware. Remaining fault is M4 capture / Wi-Fi PHY decode / report path.
+
+Source inspection identified two concrete weaknesses:
+1. capture had no previous DMA block, so packet preamble/L-LTF could be lost;
+2. auto-starting `BasebandThread` was declared before processor state despite upstream requirement to keep it last.
+
+## Test K — Fix7: improved capture telemetry, STATIC FAIL
+Fix7 added:
+- 2048 IQ pre-trigger samples using existing capture RAM;
+- BasebandThread/RSSIThread moved last;
+- lower capture threshold;
+- 1000 ms/channel dwell;
+- M/C/D telemetry using `HunterTrigger`.
+
+Run `32666957127`, job `97261737292`.
+
+Actual hardened audit:
+- size `23508`
+- M4 offset `7140`
+- shared core symbols `7118`
+- **core drift `179`**
+- patches `0`
+- ambiguous `0`
+- unresolved `0`
+- checksum `0`
+- SHA-256 `cb1cab400ea934f3d0bf2d3116d624c3310375a7f7342a2c00b3ec4a4d71248f`
+- RESULT `FAIL`
+
+The shift started at +4 bytes around stock core address `0x000A3C68`. Do not hardware-test original Fix7.
+
+## Test L — Fix7b: existing FSKPacket telemetry + zero-drift audit PASS
+Fix7b preserves all useful Fix7 M4/capture changes, but removes the additional M0 `HunterTrigger` handler. Instead M4 sends diagnostic-only `WireApReport` records through the already existing `FSKPacket` message route. `flags bit1` marks diagnostics; M0 consumes those packets to update `M/C/D` and does not add them to the AP list.
+
+Technical PR:
+`#4`
+
+Workflow run:
+`32671853658`
+
+Job:
+`97273779780`
+
+Actions result:
+`SUCCESS`
+
+Artifact:
+- name `wifi-aim-full-n260808-fix7b`
+- ID `9501915159`
+- artifact digest `sha256:68093816916211b88d4fd9ec56ace728ec14c246aca2a89ba820b4f0d491a5d6`
+
+Final PPMA:
+`WiFiAIM_n260808_fix7b.ppma`
+
+Hardened verification:
+- size `23396`
+- memory `0x10083FE4`
+- entry `0x10084039`
 - header `3`
 - version `0x86B64C1D`
 - tag `WAIM`
-- M4 offset `6624`
-- shared core symbol count `7118`
-- core symbol drift count `0`
-- ABI rebase patch count `0`
-- resolved same-address core references `81`
+- M4 offset `7036`
+- shared core symbol count `7086`
+- **core symbol drift count `0`**
+- drift reference count `0`
+- patch count `0`
+- same-address core refs `80`
 - ambiguous count `0`
 - unresolved count `0`
 - final checksum `0x00000000`
 - stock `_Znwj = 0x7ee24`
 - modified `_Znwj = 0x7ee24`
-- retained `to_string_mac_address` symbol absent in stock and modified builds
-- RESULT `PASS`
+- no retained `to_string_mac_address`
+- PPMA SHA-256 `730dee07e741cc5a2764dfcf9ffbae52622caf25a75ea6e94a7ffabbf9cb2b49`
+- **RESULT `PASS`**
 
-Interpretation: this is materially stronger than Fix5. The modified build did not shift the audited stock core symbols, and the final `.ppma` did not require any ABI rebasing patches.
+Independent verification after artifact download reproduced:
+- file size `23396`;
+- version/tag/header and M4 offset;
+- Thumb entry inside the external-app M0 range;
+- word-aligned M4 boundary;
+- checksum exactly `0`;
+- identical SHA-256.
 
-## Test J — Fix6 real hardware: launch PASS, SCAN 0 AP
-User tested `WiFiAIM_n260808_fix6.ppma` on the real PortaPack while keeping stock Mayhem `n_260808`.
+Hardware status: **PENDING**.
 
-Observed:
-- application opens normally;
-- no HardFault on launch;
-- red RF/RSSI bar responds strongly to antenna presence/orientation, confirming live RF reception;
-- pressing `SCAN` completes but returns `0 AP`.
+## Fix7b hardware test procedure
+1. Keep stock Mayhem `n_260808`; do not flash firmware.
+2. Remove/move Fix6 from `/APPS` to avoid duplicate WiFi AIM entries.
+3. Copy only `WiFiAIM_n260808_fix7b.ppma` to `/APPS`.
+4. Do not copy `WAIM.bin` separately; it is embedded in the PPMA.
+5. Launch RX -> WiFi AIM.
+6. Verify no HardFault and that RF/RSSI still responds to antenna.
+7. Press SCAN. It spends about 1 second on each channel 1-13.
+8. Observe whether `M` follows the current channel.
+9. Record final `Done xAP C# D#` exactly.
 
-Conclusion:
-- Fix6 solved the M0 loader/core-ABI crash on real stock firmware;
-- the current failure is downstream in M4 packet capture / Wi-Fi PHY decode / report path, not external-app loading;
-- RSSI activity alone does not prove that the custom M4 decoder is receiving complete 802.11 preambles.
-
-Source inspection after this test found two high-value issues to address in Fix7:
-1. Fix6 starts a capture only at the DMA block whose average power crosses threshold and keeps no previous IQ block. A Wi-Fi preamble/L-LTF can therefore begin in the preceding block and be lost before the decoder sees the packet.
-2. `BasebandThread` was declared before processor state/buffers even though upstream Mayhem explicitly requires auto-starting processor threads to be the last members so state is initialized before samples are processed.
-
-Fix7 therefore adds:
-- one DMA block (~2048 IQ samples) of pre-trigger history, reusing the existing capture buffer so M4 RAM does not increase;
-- safer BasebandThread/RSSIThread member order;
-- a less conservative energy trigger;
-- 1000 ms dwell per Wi-Fi channel instead of 450 ms;
-- ABI-safe runtime diagnostics over `HunterTrigger`: `C` = capture attempts, `D` = successful Wi-Fi decodes, `M` = last channel acknowledged by M4.
-
-Fix7 CI run at time of this log update:
-`32666957127`
-
-Hardware interpretation for Fix7 diagnostics:
-- `M` following the scanned channel proves M0 -> M4 configuration messages are arriving;
-- `C > 0, D = 0` means RF bursts are being captured but PHY decoding is rejecting all candidates;
-- `C = 0` means the capture detector/threshold still is not triggering;
-- `D > 0` should correspond to actual `WAIM` AP reports and AP count growth.
+Interpretation:
+- HardFault -> runtime regression despite static PASS; capture full register screen.
+- `M` follows + `C=0` -> detector/capture-start issue.
+- `C>0 D=0` -> detector/capture is working; next build instruments PHY stages.
+- `D>0` but AP=0 -> investigate real AP report path/parser.
+- AP>0 -> continue to SSID/BSSID selection, TARGET, AIM, REF/DELTA REF.
 
 ## Confirmed installation behaviour
-Exact upstream Mayhem `n_260808` code confirms:
-- external apps are loaded from `/APPS`;
-- the baseband M4 binary is appended into the generated `.ppma`;
-- when `m4_app_offset != 0`, the loader reads both the application and embedded baseband image from the same `.ppma`.
+Exact upstream Mayhem `n_260808` confirms:
+- external apps load from `/APPS`;
+- M4 binary is appended into generated `.ppma`;
+- loader loads embedded M4 from the same `.ppma` when `m4_app_offset != 0`.
 
-Therefore stock-path tests copy only the matching `WiFiAIM_n260808_fixN.ppma` into `/APPS`.
-Do not copy `WAIM.bin` separately.
-
-## Current next criterion
-Do not return to Fix5/ABI debugging unless a new zero-drift audit fails. The next frontier is Fix7 capture/decoder telemetry on real hardware.
-
-For Fix7 require first:
-1. static `RESULT=PASS` with zero core drift/unresolved/ambiguous imports;
-2. app launches on stock `n_260808`;
-3. during SCAN read the displayed `C`, `D`, and `M` values;
-4. if APs appear, continue directly to BSSID TARGET and antenna aiming;
-5. if `C>0 D=0`, instrument the PHY stages next instead of changing the loader/ABI layer.
+Therefore stock-path tests copy only the matching `.ppma` into `/APPS`.
