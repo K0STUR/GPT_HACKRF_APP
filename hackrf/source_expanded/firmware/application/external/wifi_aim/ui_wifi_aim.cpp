@@ -87,6 +87,13 @@ void WifiAimView::update_scan_status() {
                     to_string_dec_uint(diag_ack_channel_));
 }
 
+void WifiAimView::update_done_status() {
+    if (scanning_ || target_set_) return;
+    text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
+                    to_string_dec_uint(scan_capture_delta()) + " D" +
+                    to_string_dec_uint(scan_decode_delta()));
+}
+
 void WifiAimView::start_scan() {
     ap_count_ = 0; selected_ = 0; target_set_ = false;
     target_level_count_ = target_level_pos_ = 0; peak_x10_ = -1200; ref_valid_ = false;
@@ -100,9 +107,9 @@ void WifiAimView::start_scan() {
 
 void WifiAimView::end_scan() {
     scanning_ = false; set_decoder(false);
-    text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
-                    to_string_dec_uint(scan_capture_delta()) + " D" +
-                    to_string_dec_uint(scan_decode_delta()));
+    // Initial value; Fix7c refreshes it again when M4's final disabled-state
+    // telemetry arrives, so C/D include the last completed capture exactly.
+    update_done_status();
     update_ap_display();
 }
 
@@ -154,7 +161,7 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
     std::memcpy(&w, msg->packet->data, sizeof(w));
     if (std::memcmp(w.magic, "WAIM", 4) != 0 || w.version != 3 || w.channel < 1 || w.channel > 13) return;
 
-    // Fix7b transports diagnostics over the existing FSKPacket message path.
+    // Fix7b/Fix7c transport diagnostics over the existing FSKPacket path.
     // This avoids adding a HunterTrigger MessageHandlerRegistration to M0.
     diag_capture_total_ = static_cast<uint16_t>(w.capture_total & 0x3FFFu);
     diag_decode_total_ = static_cast<uint16_t>(w.decode_total & 0x3FFFu);
@@ -162,7 +169,10 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
     update_scan_status();
 
     // bit7 marks a diagnostics-only packet; it is not an access point report.
-    if (w.flags & 0x80u) return;
+    if (w.flags & 0x80u) {
+        update_done_status();
+        return;
+    }
 
     std::size_t ap_index = ap_count_;
     for (std::size_t i = 0; i < ap_count_; ++i) {
@@ -199,6 +209,7 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
         update_aim_display(w.packet_db_x10);
     } else if (!scanning_) {
         update_ap_display();
+        update_done_status();
     }
 }
 
