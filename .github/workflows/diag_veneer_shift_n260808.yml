@@ -1,0 +1,58 @@
+name: Diagnose WiFi AIM veneer shift n_260808
+
+on:
+  push:
+    paths:
+      - '.github/workflows/diag_veneer_shift_n260808.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare veneers
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          files={
+            'probe':Path('build_results/wifi_aim_probe_n260808/WiFiAimProbe_n260808.ppma'),
+            'full':Path('build_results/wifi_aim_full_n260808_fix2/WiFiAIM_n260808_fix2.ppma'),
+          }
+          prefix=bytes.fromhex('01b40248844601bc604700bf')
+          out=[]
+          allv={}
+          for name,p in files.items():
+            b=p.read_bytes(); vals=[]; i=0
+            while True:
+              i=b.find(prefix,i)
+              if i<0: break
+              if i+16<=len(b):
+                v=struct.unpack_from('<I',b,i+12)[0]
+                vals.append((i,v))
+              i+=1
+            allv[name]=vals
+            out.append(f'[{name}] count={len(vals)}')
+            for off,v in vals:
+              out.append(f'{name} off=0x{off:04X} target=0x{v:08X}')
+          ps={v for _,v in allv['probe']}
+          fs={v for _,v in allv['full']}
+          out.append('\n[full targets whose -0x14 exists in probe]')
+          for off,v in allv['full']:
+            if ((v-0x14)&0xffffffff) in ps:
+              out.append(f'off=0x{off:04X} full=0x{v:08X} stock_candidate=0x{v-0x14:08X}')
+          out.append('\n[summary]')
+          matches=sum(1 for _,v in allv['full'] if ((v-0x14)&0xffffffff) in ps)
+          out.append(f'full_count={len(allv["full"])} probe_count={len(allv["probe"])} minus14_matches={matches}')
+          Path('build_results/VENEER_SHIFT_DIAG.txt').write_text('\n'.join(out)+'\n')
+          PY
+          git config user.name 'wifi-aim-builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f build_results/VENEER_SHIFT_DIAG.txt
+          git commit -m 'Publish WiFi AIM veneer shift diagnostics' || true
+          git push

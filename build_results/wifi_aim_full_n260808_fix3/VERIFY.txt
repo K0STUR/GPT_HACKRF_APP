@@ -1,0 +1,7 @@
+size=22436
+memory=0x10083EDC entry=0x10083F31 delta=85
+header=3 version=0x86B64C1D tag=b'WAIM'
+m4_offset=6340 mod4=0
+loader_checksum=0x00000000
+sha256=608a19dfe9eadbc02695aa7248876a27b4cd08c48990682c78eedaeefcbf7e21
+RESULT=PASS

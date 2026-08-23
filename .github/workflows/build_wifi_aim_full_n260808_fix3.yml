@@ -1,0 +1,141 @@
+name: Build Full WiFi AIM n_260808 fix3 lowmem aligned
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build_wifi_aim_full_n260808_fix3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct and reduce M0 heap footprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat wifi_aim_n260808/src.part* > /tmp/wifi_aim_src.b64
+          base64 -d /tmp/wifi_aim_src.b64 > /tmp/wifi_aim_src.tar.gz
+          echo '294072ffe25e369fee1276cca11ea6a374fc27b2e09a081eb444eabd8eb01cb9  /tmp/wifi_aim_src.tar.gz' | sha256sum -c -
+          mkdir -p wifi_src
+          tar -xzf /tmp/wifi_aim_src.tar.gz -C wifi_src
+          python3 - <<'PY'
+          from pathlib import Path
+          h=Path('wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.hpp')
+          s=h.read_text()
+          assert 'static constexpr std::size_t kMaxAps = 32;' in s
+          s=s.replace('static constexpr std::size_t kMaxAps = 32;', 'static constexpr std::size_t kMaxAps = 8;')
+          s=s.replace('std::array<int16_t,16> target_levels_{};', 'std::array<int16_t,8> target_levels_{};')
+          h.write_text(s)
+          c=Path('wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp')
+          s=c.read_text()
+          s=s.replace('target_levels_[(target_level_pos_+15)%16]', 'target_levels_[(target_level_pos_ + target_levels_.size() - 1) % target_levels_.size()]')
+          c.write_text(s)
+          PY
+
+      - name: Checkout exact Mayhem n_260808
+        run: |
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem
+          cd mayhem
+          git checkout nightly-tag-2026-08-08
+          git submodule update --init --recursive
+          test "$(git rev-parse HEAD)" = "367eaf54c0f51f62448d9f2d9585fd3629f6b770"
+
+      - name: Integrate WiFi AIM
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a wifi_src/firmware/application/external/wifi_aim mayhem/firmware/application/external/
+          cp wifi_src/firmware/baseband/proc_wifi_aim.* mayhem/firmware/baseband/
+          cp wifi_src/firmware/common/wifi_aim_wire.hpp mayhem/firmware/common/
+          cp -a wifi_src/firmware/common/wifi_aim mayhem/firmware/common/
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('mayhem/firmware/application/external/external.cmake'); s=p.read_text()
+          a='  external/signal_hunter/ui_signal_hunter.cpp'
+          if 'external/wifi_aim/main.cpp' not in s:
+              s=s.replace(a,a+'\n\n  #wifi_aim\n  external/wifi_aim/main.cpp\n  external/wifi_aim/ui_wifi_aim.cpp',1)
+          la='  signal_hunter\n'
+          if '\twifi_aim\n' not in s and '  wifi_aim\n' not in s: s=s.replace(la,la+'\twifi_aim\n',1)
+          p.write_text(s)
+
+          p=Path('mayhem/firmware/application/external/external.ld'); s=p.read_text()
+          ma='    ram_external_app_tetra_rx              (rwx) : org = 0xAE0C0000, len = 32k'
+          if 'ram_external_app_wifi_aim' not in s:
+              s=s.replace(ma,ma+'\n    ram_external_app_wifi_aim              (rwx) : org = 0xAE0D0000, len = 32k',1)
+          sa='} > ram_external_app_signal_hunter'
+          if '.external_app_wifi_aim' not in s:
+              block='''\n\n    .external_app_wifi_aim : ALIGN(4) SUBALIGN(4)\n    {\n        KEEP(*(.external_app.app_wifi_aim.application_information));\n        */external/wifi_aim/*(*ui*external_app*wifi_aim*);\n        . = ALIGN(4);\n    } > ram_external_app_wifi_aim'''
+              s=s.replace(sa,sa+block,1)
+          p.write_text(s)
+
+          p=Path('mayhem/firmware/tools/external_app_info.py'); s=p.read_text()
+          s=s.replace('external_apps_address_end = 0xAE0B0000','external_apps_address_end = 0xAE0E0000')
+          p.write_text(s)
+
+          p=Path('mayhem/firmware/baseband/CMakeLists.txt'); s=p.read_text(); a='DeclareTargets(HUNT signal_hunter)'
+          if 'DeclareTargets(WAIM wifi_aim)' not in s:
+              s=s.replace(a,a+'''\n\n### WiFi AIM\nset(MODE_FLAGS "-Os")\nset(MODE_CPPSRC\n    proc_wifi_aim.cpp\n    ${COMMON}/wifi_aim/wifi_aim_phy.cpp\n)\nDeclareTargets(WAIM wifi_aim)\nset(MODE_FLAGS "-O3")''',1)
+          p.write_text(s)
+          PY
+
+      - name: Build official Mayhem toolchain
+        run: |
+          cd mayhem
+          docker build -t portapack-dev -f dockerfile-nogit .
+          mkdir -p build
+          docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev
+
+      - name: Verify and publish clean PPMA
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=build_results/wifi_aim_full_n260808_fix3
+          rm -rf "$OUT"; mkdir -p "$OUT"
+          cp mayhem/build/firmware/application/wifi_aim.ppma "$OUT/WiFiAIM_n260808_fix3.ppma"
+          cp mayhem/build/firmware/baseband/WAIM.bin "$OUT/WAIM.bin"
+          python3 - <<'PY' > "$OUT/VERIFY.txt"
+          import struct,hashlib
+          from pathlib import Path
+          b=Path('build_results/wifi_aim_full_n260808_fix3/WiFiAIM_n260808_fix3.ppma').read_bytes()
+          mem,entry,hdr,ver=struct.unpack_from('<IIII',b,0)
+          tag=b[76:80]; off=struct.unpack_from('<I',b,80)[0]
+          def csum(d):
+              if len(d)%4:d+=b'\0'*(4-len(d)%4)
+              return sum(struct.unpack('<%dI'%(len(d)//4),d))&0xffffffff
+          total=0; i=0
+          while i<off:
+              n=min(512,off-i); ch=b[i:i+n]; total=(total+csum(ch))&0xffffffff
+              if len(ch)<512: break
+              i+=512
+          i=off
+          while True:
+              n=512-(i%512) if i%512 else 512
+              ch=b[i:i+n]
+              if not ch: break
+              total=(total+csum(ch))&0xffffffff
+              if len(ch)!=n: break
+              i+=len(ch)
+          print(f'size={len(b)}')
+          print(f'memory=0x{mem:08X} entry=0x{entry:08X} delta={entry-mem}')
+          print(f'header={hdr} version=0x{ver:08X} tag={tag!r}')
+          print(f'm4_offset={off} mod4={off%4}')
+          print(f'loader_checksum=0x{total:08X}')
+          print('sha256='+hashlib.sha256(b).hexdigest())
+          ok=(hdr==3 and tag==b'WAIM' and off%4==0 and total==0 and (entry&1))
+          print('RESULT='+('PASS' if ok else 'FAIL'))
+          if not ok: raise SystemExit(2)
+          PY
+          sha256sum "$OUT/WiFiAIM_n260808_fix3.ppma" > "$OUT/SHA256SUMS.txt"
+          base64 -w0 "$OUT/WiFiAIM_n260808_fix3.ppma" > "$OUT/WiFiAIM_n260808_fix3.ppma.b64"
+          git config user.name 'wifi-aim-builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f "$OUT"
+          git commit -m 'Publish WiFi AIM n_260808 fix3 clean lowmem build' || true
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true

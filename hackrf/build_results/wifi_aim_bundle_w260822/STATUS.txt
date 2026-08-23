@@ -1,0 +1,12 @@
+RESULT=SUCCESS
+VERSION=w_260822
+size=22636
+memory=0x10083EDC
+entry=0x10083F31
+header=3
+version_md5=0x96CD1C19
+tag=b'WAIM'
+m4_offset=6540 mod4=0
+loader_checksum=0x00000000
+sha256=37e7cd018c58c2264ce8b5d2929f3a137dcf1a60dd82bf64e3cb18e35c995fe0
+RESULT=PASS

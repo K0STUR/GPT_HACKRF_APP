@@ -1,0 +1,78 @@
+name: Build WiFi AIM Probe n_260808
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build_wifi_aim_probe_n260808.yml'
+      - 'trigger_wifi_aim_probe_n260808.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout Mayhem snapshot matching n_260808 window
+        run: |
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem
+          cd mayhem
+          git checkout 367eaf54c0f51f62448d9f2d9585fd3629f6b770
+          git submodule update --init --recursive
+
+      - name: Patch Signal Hunter into WiFi AIM RF Probe
+        run: |
+          cd mayhem
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('firmware/application/external/signal_hunter/ui_signal_hunter.cpp')
+          s = p.read_text()
+          s = s.replace('433920000', '2437000000')
+          s = s.replace('receiver_model.set_baseband_bandwidth(1750000);', 'receiver_model.set_baseband_bandwidth(20000000);')
+          s = s.replace('receiver_model.set_sampling_rate(2000000);', 'receiver_model.set_sampling_rate(20000000);')
+          p.write_text(s)
+
+          p = Path('firmware/application/external/signal_hunter/ui_signal_hunter.hpp')
+          s = p.read_text().replace('433920000', '2437000000')
+          p.write_text(s)
+
+          p = Path('firmware/application/external/signal_hunter/main.cpp')
+          s = p.read_text().replace('"SigHunter"', '"WiFiAimProbe"')
+          p.write_text(s)
+          PY
+
+      - name: Build official Mayhem toolchain image
+        run: |
+          cd mayhem
+          docker build -t portapack-dev -f dockerfile-nogit .
+
+      - name: Build with exact firmware version string
+        run: |
+          cd mayhem
+          mkdir -p build
+          docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev
+
+      - name: Collect and publish probe
+        run: |
+          rm -rf build_results/wifi_aim_probe_n260808
+          mkdir -p build_results/wifi_aim_probe_n260808
+          cp mayhem/build/firmware/application/signal_hunter.ppma build_results/wifi_aim_probe_n260808/WiFiAimProbe_n260808.ppma
+          sha256sum build_results/wifi_aim_probe_n260808/WiFiAimProbe_n260808.ppma > build_results/wifi_aim_probe_n260808/SHA256SUMS.txt
+          base64 -w0 build_results/wifi_aim_probe_n260808/WiFiAimProbe_n260808.ppma > build_results/wifi_aim_probe_n260808/WiFiAimProbe_n260808.ppma.b64
+          printf '%s\n' 'SUCCESS' > build_results/wifi_aim_probe_n260808/BUILD_STATUS.txt
+          printf '%s\n' 'Built from Mayhem 367eaf54c0f51f62448d9f2d9585fd3629f6b770 with VERSION_STRING=n_260808.' > build_results/wifi_aim_probe_n260808/README.txt
+          git config user.name 'wifi-aim-builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add build_results/wifi_aim_probe_n260808
+          git commit -m 'Publish WiFi AIM probe n_260808' || true
+          git push
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wifi-aim-probe-n260808
+          path: build_results/wifi_aim_probe_n260808/*
+          if-no-files-found: error

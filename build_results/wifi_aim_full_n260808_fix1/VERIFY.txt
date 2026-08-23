@@ -1,0 +1,7 @@
+old_offset=6493
+new_offset=6496
+m4_size=16092
+file_size=22592
+loader_checksum=0x00000000
+sha256=c3e16d35398f28e2130ad992951f5368ecd6f142a473f4198514fe0adcfee49b
+RESULT=PASS

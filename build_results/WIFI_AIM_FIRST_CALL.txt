@@ -1,0 +1,111 @@
+
+FILE build_results/wifi_aim_probe_n260808/WiFiAimProbe_n260808.ppma mem 0x10082fcc entry 0x10083021 m4off 8580
+0x10083020 push {r0, r1, r2, r4, r5, lr}
+0x10083022 movs r4, r0
+0x10083024 movs r0, #0xaa
+0x10083026 lsls r0, r0, #2
+0x10083028 bl #0x10084b60
+0x1008302c movs r5, r0
+0x1008302e movs r1, r4
+0x10083030 bl #0x100843cc
+0x10083034 movs r0, r4
+0x10083036 add r1, sp, #4
+0x10083038 str r5, [sp, #4]
+0x1008303a bl #0x10084e60
+0x1008303e ldr r0, [sp, #4]
+0x10083040 cmp r0, #0
+0x10083042 beq #0x1008304a
+0x10083044 ldr r3, [r0]
+0x10083046 ldr r3, [r3, #4]
+FIRST_BL_TARGET 0x10084b60 fileoff 0x1b94
+target_raw 01b40248844601bc604700bf25ee070001b40248844601bc604700bf41970700
+veneer_literal_u32 0x7ee25
+0x10084b60 push {r0}
+0x10084b62 ldr r0, [pc, #8]
+0x10084b64 mov ip, r0
+0x10084b66 pop {r0}
+0x10084b68 bx ip
+0x10084b6a nop 
+0x10084b6c cdp p0, #2, c0, c5, c7, #0
+0x10084b70 push {r0}
+0x10084b72 ldr r0, [pc, #8]
+0x10084b74 mov ip, r0
+0x10084b76 pop {r0}
+0x10084b78 bx ip
+0x10084b7a nop 
+0x10084b7c str r7, [sp, #0x104]
+0x10084b7e movs r7, r0
+
+FILE build_results/wifi_aim_full_n260808_fix1/WiFiAIM_n260808_fix1.ppma mem 0x10083edc entry 0x10083f31 m4off 6496
+0x10083f30 push {r0, r1, r2, r4, r5, lr}
+0x10083f32 movs r4, r0
+0x10083f34 ldr r0, [pc, #0x24]
+0x10083f36 bl #0x10085794
+0x10083f3a movs r5, r0
+0x10083f3c movs r1, r4
+0x10083f3e bl #0x1008446c
+0x10083f42 movs r0, r4
+0x10083f44 add r1, sp, #4
+0x10083f46 str r5, [sp, #4]
+0x10083f48 bl #0x10085624
+0x10083f4c ldr r0, [sp, #4]
+0x10083f4e cmp r0, #0
+0x10083f50 beq #0x10083f58
+0x10083f52 ldr r3, [r0]
+0x10083f54 ldr r3, [r3, #4]
+0x10083f56 blx r3
+FIRST_BL_TARGET 0x10085794 fileoff 0x18b8
+target_raw 01b40248844601bc604700bf39ee070001b40248844601bc604700bfb15d0600
+veneer_literal_u32 0x7ee39
+0x10085794 push {r0}
+0x10085796 ldr r0, [pc, #8]
+0x10085798 mov ip, r0
+0x1008579a pop {r0}
+0x1008579c bx ip
+0x1008579e nop 
+0x100857a0 cdp p0, #3, c0, c9, c7, #0
+0x100857a4 push {r0}
+0x100857a6 ldr r0, [pc, #8]
+0x100857a8 mov ip, r0
+0x100857aa pop {r0}
+0x100857ac bx ip
+0x100857ae nop 
+0x100857b0 ldrb r1, [r6, r6]
+0x100857b2 movs r6, r0
+
+FILE build_results/wifi_aim_lowmem_n260808/WiFiAIM_n260808_lowmem.ppma mem 0x10083edc entry 0x10083f31 m4off 6340
+0x10083f30 push {r0, r1, r2, r4, r5, lr}
+0x10083f32 movs r4, r0
+0x10083f34 ldr r0, [pc, #0x24]
+0x10083f36 bl #0x100856f8
+0x10083f3a movs r5, r0
+0x10083f3c movs r1, r4
+0x10083f3e bl #0x10084448
+0x10083f42 movs r0, r4
+0x10083f44 add r1, sp, #4
+0x10083f46 str r5, [sp, #4]
+0x10083f48 bl #0x10085578
+0x10083f4c ldr r0, [sp, #4]
+0x10083f4e cmp r0, #0
+0x10083f50 beq #0x10083f58
+0x10083f52 ldr r3, [r0]
+0x10083f54 ldr r3, [r3, #4]
+0x10083f56 blx r3
+FIRST_BL_TARGET 0x100856f8 fileoff 0x181c
+target_raw 01b40248844601bc604700bf39ee070001b40248844601bc604700bfb15d0600
+veneer_literal_u32 0x7ee39
+0x100856f8 push {r0}
+0x100856fa ldr r0, [pc, #8]
+0x100856fc mov ip, r0
+0x100856fe pop {r0}
+0x10085700 bx ip
+0x10085702 nop 
+0x10085704 cdp p0, #3, c0, c9, c7, #0
+0x10085708 push {r0}
+0x1008570a ldr r0, [pc, #8]
+0x1008570c mov ip, r0
+0x1008570e pop {r0}
+0x10085710 bx ip
+0x10085712 nop 
+0x10085714 ldrb r1, [r6, r6]
+0x10085716 movs r6, r0

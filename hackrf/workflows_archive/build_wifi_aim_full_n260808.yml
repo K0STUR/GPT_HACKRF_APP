@@ -1,0 +1,162 @@
+name: Build Full WiFi AIM n_260808
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build_wifi_aim_full_n260808.yml'
+      - 'wifi_aim_n260808/src.part*'
+      - 'trigger_wifi_aim_full_n260808.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct WiFi AIM sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat wifi_aim_n260808/src.part* > /tmp/wifi_aim_src.b64
+          base64 -d /tmp/wifi_aim_src.b64 > /tmp/wifi_aim_src.tar.gz
+          echo '294072ffe25e369fee1276cca11ea6a374fc27b2e09a081eb444eabd8eb01cb9  /tmp/wifi_aim_src.tar.gz' | sha256sum -c -
+          mkdir -p wifi_src
+          tar -xzf /tmp/wifi_aim_src.tar.gz -C wifi_src
+          test -f wifi_src/firmware/application/external/wifi_aim/main.cpp
+          test -f wifi_src/firmware/common/wifi_aim/wifi_aim_phy.cpp
+
+      - name: Checkout Mayhem snapshot for n_260808
+        run: |
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem
+          cd mayhem
+          git checkout 367eaf54c0f51f62448d9f2d9585fd3629f6b770
+          git submodule update --init --recursive
+
+      - name: Integrate full WiFi AIM
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a wifi_src/firmware/application/external/wifi_aim mayhem/firmware/application/external/
+          cp wifi_src/firmware/baseband/proc_wifi_aim.* mayhem/firmware/baseband/
+          cp wifi_src/firmware/common/wifi_aim_wire.hpp mayhem/firmware/common/
+          cp -a wifi_src/firmware/common/wifi_aim mayhem/firmware/common/
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # External app source list + app list.
+          p = Path('mayhem/firmware/application/external/external.cmake')
+          s = p.read_text()
+          src_anchor = '  external/signal_hunter/ui_signal_hunter.cpp'
+          src_add = src_anchor + '\n\n  #wifi_aim\n  external/wifi_aim/main.cpp\n  external/wifi_aim/ui_wifi_aim.cpp'
+          if 'external/wifi_aim/main.cpp' not in s:
+              assert src_anchor in s
+              s = s.replace(src_anchor, src_add, 1)
+          list_anchor = '  signal_hunter\n'
+          if '\twifi_aim\n' not in s and '  wifi_aim\n' not in s:
+              assert list_anchor in s
+              s = s.replace(list_anchor, list_anchor + '\twifi_aim\n', 1)
+          p.write_text(s)
+
+          # New 32-KiB virtual app slot immediately after tetra_rx.
+          p = Path('mayhem/firmware/application/external/external.ld')
+          s = p.read_text()
+          mem_anchor = '    ram_external_app_tetra_rx              (rwx) : org = 0xAE0C0000, len = 32k'
+          if 'ram_external_app_wifi_aim' not in s:
+              assert mem_anchor in s
+              s = s.replace(mem_anchor, mem_anchor + '\n    ram_external_app_wifi_aim              (rwx) : org = 0xAE0D0000, len = 32k', 1)
+          sec_anchor = '} > ram_external_app_signal_hunter'
+          if '.external_app_wifi_aim' not in s:
+              assert sec_anchor in s
+              block = '''\n\n    .external_app_wifi_aim : ALIGN(4) SUBALIGN(4)\n    {\n        KEEP(*(.external_app.app_wifi_aim.application_information));\n        */external/wifi_aim/*(*ui*external_app*wifi_aim*);\n    } > ram_external_app_wifi_aim'''
+              s = s.replace(sec_anchor, sec_anchor + block, 1)
+          p.write_text(s)
+
+          # Extend exporter warning/relocation address range through WiFi AIM slot.
+          p = Path('mayhem/firmware/tools/external_app_info.py')
+          s = p.read_text()
+          s = s.replace('external_apps_address_end = 0xAE0B0000', 'external_apps_address_end = 0xAE0E0000')
+          p.write_text(s)
+
+          # Add the dedicated M4 baseband image after Signal Hunter.
+          p = Path('mayhem/firmware/baseband/CMakeLists.txt')
+          s = p.read_text()
+          anchor = 'DeclareTargets(HUNT signal_hunter)'
+          if 'DeclareTargets(WAIM wifi_aim)' not in s:
+              assert anchor in s
+              block = '''\n\n### WiFi AIM\nset(MODE_FLAGS "-Os")\nset(MODE_CPPSRC\n    proc_wifi_aim.cpp\n    ${COMMON}/wifi_aim/wifi_aim_phy.cpp\n)\nDeclareTargets(WAIM wifi_aim)\nset(MODE_FLAGS "-O3")'''
+              s = s.replace(anchor, anchor + block, 1)
+          p.write_text(s)
+          PY
+
+          grep -n 'wifi_aim' mayhem/firmware/application/external/external.cmake
+          grep -n 'wifi_aim' mayhem/firmware/application/external/external.ld
+          grep -n 'WAIM wifi_aim' mayhem/firmware/baseband/CMakeLists.txt
+
+      - name: Build official Mayhem toolchain image
+        run: |
+          cd mayhem
+          docker build -t portapack-dev -f dockerfile-nogit .
+
+      - name: Full build n_260808
+        id: fullbuild
+        shell: bash
+        run: |
+          set +e
+          rm -rf build_results/wifi_aim_full_n260808
+          mkdir -p build_results/wifi_aim_full_n260808 mayhem/build
+          cd mayhem
+          docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev 2>&1 | tee ../build_results/wifi_aim_full_n260808/BUILD_FULL.log
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > ../build_results/wifi_aim_full_n260808/BUILD_RC.txt
+          exit 0
+
+      - name: Collect outputs and diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          OUT=build_results/wifi_aim_full_n260808
+          mkdir -p "$OUT"
+          rc=$(cat "$OUT/BUILD_RC.txt" 2>/dev/null || echo 999)
+          echo "build_rc=$rc" > "$OUT/BUILD_STATUS.txt"
+          tail -n 900 "$OUT/BUILD_FULL.log" > "$OUT/BUILD_TAIL.txt" 2>/dev/null || true
+
+          PPMA=mayhem/build/firmware/application/wifi_aim.ppma
+          M4=mayhem/build/firmware/baseband/WAIM.bin
+          MAP=mayhem/build/firmware/baseband/baseband_wifi_aim.map
+          ELF=mayhem/build/firmware/baseband/baseband_wifi_aim.elf
+
+          if [ -f "$PPMA" ]; then
+            cp "$PPMA" "$OUT/WiFiAIM_n260808.ppma"
+            stat -c 'ppma_size=%s' "$PPMA" >> "$OUT/BUILD_STATUS.txt"
+            sha256sum "$OUT/WiFiAIM_n260808.ppma" > "$OUT/SHA256SUMS.txt"
+            base64 -w0 "$OUT/WiFiAIM_n260808.ppma" > "$OUT/WiFiAIM_n260808.ppma.b64"
+            echo 'RESULT=SUCCESS' >> "$OUT/BUILD_STATUS.txt"
+          else
+            echo 'RESULT=NO_PPMA' >> "$OUT/BUILD_STATUS.txt"
+          fi
+          for f in "$M4" "$MAP" "$ELF"; do [ -f "$f" ] && cp "$f" "$OUT/"; done
+
+      - name: Publish build result
+        if: always()
+        shell: bash
+        run: |
+          git config user.name 'wifi-aim-builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f build_results/wifi_aim_full_n260808
+          git commit -m 'Publish full WiFi AIM n_260808 build result' || true
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wifi-aim-full-n260808
+          path: build_results/wifi_aim_full_n260808/*
+          if-no-files-found: warn

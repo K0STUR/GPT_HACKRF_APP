@@ -1,0 +1,47 @@
+name: Diagnose WiFi AIM hard fault
+
+on:
+  push:
+    paths:
+      - '.github/workflows/diag_wifi_aim_hardfault.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disassemble PPMA M0 image
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet capstone
+          mkdir -p build_results/wifi_aim_hardfault_diag
+          python3 - <<'PY' > build_results/wifi_aim_hardfault_diag/DISASM_ENTRY.txt
+          import struct, pathlib
+          from capstone import Cs, CS_ARCH_ARM, CS_MODE_THUMB, CS_MODE_LITTLE_ENDIAN
+          p=pathlib.Path('build_results/wifi_aim_full_n260808_fix1/WiFiAIM_n260808_fix1.ppma')
+          d=p.read_bytes(); mem,entry,header,ver=struct.unpack_from('<IIII',d,0); m4off=struct.unpack_from('<I',d,80)[0]
+          code=d[:m4off]; start=(entry&~1)-mem
+          print(f'size={len(d)} mem=0x{mem:08X} entry=0x{entry:08X} m4off={m4off} start=0x{start:X}')
+          print('raw_entry_bytes='+code[start:start+96].hex())
+          md=Cs(CS_ARCH_ARM, CS_MODE_THUMB|CS_MODE_LITTLE_ENDIAN); md.skipdata=True
+          for i in md.disasm(code[start:start+160], entry&~1):
+              print(f'0x{i.address:08X}: {i.bytes.hex():<10} {i.mnemonic:<9} {i.op_str}')
+          print('\nWords around entry:')
+          for off in range(start, min(start+128,len(code)-3),4):
+              print(f'0x{mem+off:08X} +0x{off:X}: 0x{struct.unpack_from("<I",code,off)[0]:08X}')
+          PY
+          cat build_results/wifi_aim_hardfault_diag/DISASM_ENTRY.txt
+      - name: Publish diagnostics
+        shell: bash
+        run: |
+          git config user.name 'wifi-aim-builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f build_results/wifi_aim_hardfault_diag
+          git commit -m 'Publish refined WiFi AIM entry disassembly' || true
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true

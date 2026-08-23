@@ -1,0 +1,46 @@
+HackRF handoff repository snapshot
+assembled_utc=2026-08-22T21:23:00Z
+source_commit=05c1af9c86cfbbcc3567decc0223c4e6fa55676c
+source_branch=main
+
+Mayhem target: n_260808
+Mayhem tag: nightly-tag-2026-08-08
+Mayhem commit: 367eaf54c0f51f62448d9f2d9585fd3629f6b770
+
+Mirrored build result directories:
+wifi_aim_bundle_w260822
+wifi_aim_fix5_diag
+wifi_aim_full_n260808
+wifi_aim_full_n260808_fix1
+wifi_aim_full_n260808_fix2
+wifi_aim_full_n260808_fix3
+wifi_aim_full_n260808_fix4
+wifi_aim_full_n260808_fix5
+wifi_aim_hardfault_diag
+wifi_aim_lowmem_n260808
+wifi_aim_probe
+wifi_aim_probe_n260808
+wifi_aim_test_veneerpatch1_n260808
+wifi_aim_v04_diag
+
+Mirrored workflow files:
+assemble_hackrf_handoff.yml
+build_wifi_aim_bundle_w260822.yml
+build_wifi_aim_fix4_pr.yml
+build_wifi_aim_fix5_diag.yml
+build_wifi_aim_full_n260808.yml
+build_wifi_aim_full_n260808_fix1.yml
+build_wifi_aim_full_n260808_fix2.yml
+build_wifi_aim_full_n260808_fix3.yml
+build_wifi_aim_full_n260808_fix4.yml
+build_wifi_aim_full_n260808_fix5.yml
+build_wifi_aim_full_n260808_fix5_signalhunter.yml
+build_wifi_aim_lowmem_n260808.yml
+build_wifi_aim_probe.yml
+build_wifi_aim_probe_n260808.yml
+diag_ppma_n260808.yml
+diag_wifi_aim_first_call.yml
+diag_wifi_aim_hardfault.yml
+inspect_ppma_header.yml
+patch_wifi_aim_known_veneers_n260808.yml
+patch_wifi_aim_ppma_fix1.yml

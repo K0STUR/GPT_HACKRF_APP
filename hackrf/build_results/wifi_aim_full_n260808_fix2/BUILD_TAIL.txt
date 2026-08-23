@@ -1,0 +1,700 @@
+ram_external_app_antenna_length:        5300 B        32 KB     16.17%
+ram_external_app_view_wav:        8068 B        32 KB     24.62%
+ram_external_app_sd_wipe:        1452 B        32 KB      4.43%
+ram_external_app_playlist_editor:        8404 B        32 KB     25.65%
+ram_external_app_snake:        3148 B        32 KB      9.61%
+ram_external_app_stopwatch:        3888 B        32 KB     11.87%
+ram_external_app_wefax_rx:        4504 B        32 KB     13.75%
+ram_external_app_breakout:        7196 B        32 KB     21.96%
+ram_external_app_doom:       17704 B        32 KB     54.03%
+ram_external_app_debug_pmem:       11084 B        32 KB     33.83%
+ram_external_app_scanner:       12848 B        32 KB     39.21%
+ram_external_app_level:        7792 B        32 KB     23.78%
+ram_external_app_gfxeq:        4940 B        32 KB     15.08%
+ram_external_app_noaaapt_rx:        4100 B        32 KB     12.51%
+ram_external_app_detector_rx:        6808 B        32 KB     20.78%
+ram_external_app_dinogame:       24452 B        32 KB     74.62%
+ram_external_app_spaceinv:        9668 B        32 KB     29.50%
+ram_external_app_blackjack:       10512 B        32 KB     32.08%
+ram_external_app_battleship:       13780 B        32 KB     42.05%
+ram_external_app_ert:        2688 B        32 KB      8.20%
+ram_external_app_epirb_rx:       15188 B        32 KB     46.35%
+ram_external_app_soundboard:        6404 B        32 KB     19.54%
+ram_external_app_game2048:        3468 B        32 KB     10.58%
+ram_external_app_bht_tx:        6948 B        32 KB     21.20%
+ram_external_app_morse_practice:        7336 B        32 KB     22.39%
+ram_external_app_adult_toys_controller:        8516 B        32 KB     25.99%
+ram_external_app_flex_rx:        5672 B        32 KB     17.31%
+ram_external_app_sstvrx:        6496 B        32 KB     19.82%
+ram_external_app_subcarrx:        9632 B        32 KB     29.39%
+ram_external_app_siggen:        4268 B        32 KB     13.02%
+ram_external_app_sdusb:        1480 B        32 KB      4.52%
+ram_external_app_morse_radio:       11168 B        32 KB     34.08%
+ram_external_app_waterfall_designer:       10960 B        32 KB     33.45%
+ram_external_app_morseradiotx:       13688 B        32 KB     41.77%
+ram_external_app_keeloqtx:        6392 B        32 KB     19.51%
+ram_external_app_rtty_rx:        2644 B        32 KB      8.07%
+ram_external_app_rtty_tx:        5004 B        32 KB     15.27%
+ram_external_app_tpmstx:        9736 B        32 KB     29.71%
+ram_external_app_pocsag_tx:        4972 B        32 KB     15.17%
+ram_external_app_time_sink:        5416 B        32 KB     16.53%
+ram_external_app_same_tx:        4056 B        32 KB     12.38%
+ram_external_app_kiss_tnc:        4060 B        32 KB     12.39%
+ram_external_app_mdc_tx:        4220 B        32 KB     12.88%
+ram_external_app_epirb_tx:       18460 B        32 KB     56.34%
+ram_external_app_fpv_detect:        7124 B        32 KB     21.74%
+ram_external_app_p25_tx:        4000 B        32 KB     12.21%
+ram_external_app_two_tone_pager:        9724 B        32 KB     29.68%
+ram_external_app_two_tone_rx:        9572 B        32 KB     29.21%
+ram_external_app_flex_tx:       14520 B        32 KB     44.31%
+ram_external_app_hard_reset:        3944 B        32 KB     12.04%
+ram_external_app_secplustx:        6936 B        32 KB     21.17%
+ram_external_app_vor_rx:        6500 B        32 KB     19.84%
+ram_external_app_vor_tx:        3488 B        32 KB     10.64%
+ram_external_app_signal_hunter:        8584 B        32 KB     26.20%
+ram_external_app_tetra_rx:        6668 B        32 KB     20.35%
+ram_external_app_wifi_aim:        6496 B        32 KB     19.82%
+[100%] Built target application.elf
+[100%] Generating application.bin
+copy from `application.elf' [elf32-littlearm] to `application.bin' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_afsk_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_calculator.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_font_viewer.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_blespam.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_analogtv.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_nrf_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_coasterp.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_lge.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_lcr.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_jammer.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_gpssim.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_spainter.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_keyfob.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_tetris.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_extsensors.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_foxhunt_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_audio_test.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_wardrivemap.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_tpmsrx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_tpmstx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_protoview.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_adsbtx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_sstvtx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_same_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_mdc_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_sstvrx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_random_password.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_acars_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_wefax_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_noaaapt_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_vor_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_vor_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_shoppingcart_lock.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_ookbrute.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_ook_editor.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_cvs_spam.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_flippertx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_remote.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_mcu_temperature.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_fmradio.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_tuner.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_metronome.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_app_manager.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_hopper.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_antenna_length.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_view_wav.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_sd_wipe.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_playlist_editor.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_snake.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_stopwatch.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_breakout.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_dinogame.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_doom.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_debug_pmem.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_scanner.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_level.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_gfxeq.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_waterfall_designer.himg' [binary]
+Creating external application image for afsk_rx
+b'PAFR'
+PAFR
+/havoc/build/firmware/application/../baseband/PAFR.bin
+Creating external application image for calculator
+Creating external application image for font_viewer
+Creating external application image for blespam
+b'PBTT'
+PBTT
+/havoc/build/firmware/application/../baseband/PBTT.bin
+WARNING: External code address 0xae032710 at offset 0x288 in /havoc/build/firmware/application/external_app_blespam.himg
+Creating external application image for analogtv
+b'PAMT'
+PAMT
+/havoc/build/firmware/application/../baseband/PAMT.bin
+WARNING: External code address 0xae0358e2 at offset 0xcfc in /havoc/build/firmware/application/external_app_analogtv.himg
+Creating external application image for nrf_rx
+b'PNRR'
+PNRR
+/havoc/build/firmware/application/../baseband/PNRR.bin
+WARNING: External code address 0xae0c681b at offset 0x394 in /havoc/build/firmware/application/external_app_nrf_rx.himg
+Creating external application image for coasterp
+b'PFSK'
+PFSK
+/havoc/build/firmware/application/../baseband/PFSK.bin
+Creating external application image for lge
+b'PFSK'
+PFSK
+/havoc/build/firmware/application/../baseband/PFSK.bin
+WARNING: External code address 0xae034b1a at offset 0xa10 in /havoc/build/firmware/application/external_app_lge.himg
+Creating external application image for lcr
+b'PAFT'
+PAFT
+/havoc/build/firmware/application/../baseband/PAFT.bin
+Creating external application image for jammer
+b'PJAM'
+PJAM
+/havoc/build/firmware/application/../baseband/PJAM.bin
+Creating external application image for gpssim
+b'PGPS'
+PGPS
+/havoc/build/firmware/application/../baseband/PGPS.bin
+WARNING: External code address 0xae062300 at offset 0x24c in /havoc/build/firmware/application/external_app_gpssim.himg
+Creating external application image for spainter
+b'PSPT'
+PSPT
+/havoc/build/firmware/application/../baseband/PSPT.bin
+Creating external application image for keyfob
+b'POOK'
+POOK
+/havoc/build/firmware/application/../baseband/POOK.bin
+Creating external application image for tetris
+Creating external application image for extsensors
+Creating external application image for foxhunt_rx
+b'PAMA'
+PAMA
+/havoc/build/firmware/application/../baseband/PAMA.bin
+Creating external application image for audio_test
+b'PABP'
+PABP
+/havoc/build/firmware/application/../baseband/PABP.bin
+Creating external application image for wardrivemap
+Creating external application image for tpmsrx
+b'PTPM'
+PTPM
+/havoc/build/firmware/application/../baseband/PTPM.bin
+WARNING: External code address 0xae022500 at offset 0x634 in /havoc/build/firmware/application/external_app_tpmsrx.himg
+Creating external application image for tpmstx
+b'POOK'
+POOK
+/havoc/build/firmware/application/../baseband/POOK.bin
+Creating external application image for protoview
+b'PPVW'
+PPVW
+/havoc/build/firmware/application/../baseband/PPVW.bin
+Creating external application image for adsbtx
+b'PADT'
+PADT
+/havoc/build/firmware/application/../baseband/PADT.bin
+WARNING: External code address 0xae044b27 at offset 0xd24 in /havoc/build/firmware/application/external_app_adsbtx.himg
+Creating external application image for sstvtx
+b'PSTX'
+PSTX
+/havoc/build/firmware/application/../baseband/PSTX.bin
+Creating external application image for same_tx
+b'PAFT'
+PAFT
+/havoc/build/firmware/application/../baseband/PAFT.bin
+Creating external application image for mdc_tx
+b'PAFT'
+PAFT
+/havoc/build/firmware/application/../baseband/PAFT.bin
+Creating external application image for sstvrx
+b'PSRX'
+PSRX
+/havoc/build/firmware/application/../baseband/PSRX.bin
+Creating external application image for random_password
+b'PAFR'
+PAFR
+/havoc/build/firmware/application/../baseband/PAFR.bin
+Creating external application image for acars_rx
+b'PACA'
+PACA
+/havoc/build/firmware/application/../baseband/PACA.bin
+Creating external application image for wefax_rx
+b'PWFX'
+PWFX
+/havoc/build/firmware/application/../baseband/PWFX.bin
+Creating external application image for noaaapt_rx
+b'PNOA'
+PNOA
+/havoc/build/firmware/application/../baseband/PNOA.bin
+Creating external application image for vor_rx
+b'PVRX'
+PVRX
+/havoc/build/firmware/application/../baseband/PVRX.bin
+WARNING: External code address 0xae0259e3 at offset 0x800 in /havoc/build/firmware/application/external_app_vor_rx.himg
+Creating external application image for vor_tx
+b'PVTX'
+PVTX
+/havoc/build/firmware/application/../baseband/PVTX.bin
+Creating external application image for shoppingcart_lock
+b'PATX'
+PATX
+/havoc/build/firmware/application/../baseband/PATX.bin
+Creating external application image for ookbrute
+b'POOK'
+POOK
+/havoc/build/firmware/application/../baseband/POOK.bin
+Creating external application image for ook_editor
+b'POOK'
+POOK
+/havoc/build/firmware/application/../baseband/POOK.bin
+Creating external application image for cvs_spam
+b'PREP'
+PREP
+/havoc/build/firmware/application/../baseband/PREP.bin
+Creating external application image for flippertx
+b'POSK'
+POSK
+/havoc/build/firmware/application/../baseband/POSK.bin
+WARNING: External code address 0xae084b2e at offset 0x634 in /havoc/build/firmware/application/external_app_flippertx.himg
+Creating external application image for remote
+b'PREP'
+PREP
+/havoc/build/firmware/application/../baseband/PREP.bin
+WARNING: External code address 0xae064668 at offset 0x910 in /havoc/build/firmware/application/external_app_remote.himg
+WARNING: External code address 0xae0a2100 at offset 0x1fa8 in /havoc/build/firmware/application/external_app_remote.himg
+Creating external application image for mcu_temperature
+Creating external application image for fmradio
+b'PWFM'
+PWFM
+/havoc/build/firmware/application/../baseband/PWFM.bin
+WARNING: External code address 0xae06050c at offset 0x2ddc in /havoc/build/firmware/application/external_app_fmradio.himg
+Creating external application image for tuner
+b'PABP'
+PABP
+/havoc/build/firmware/application/../baseband/PABP.bin
+Creating external application image for metronome
+b'PABP'
+PABP
+/havoc/build/firmware/application/../baseband/PABP.bin
+Creating external application image for app_manager
+Creating external application image for hopper
+b'PJAM'
+PJAM
+/havoc/build/firmware/application/../baseband/PJAM.bin
+WARNING: External code address 0xae0c2300 at offset 0xb40 in /havoc/build/firmware/application/external_app_hopper.himg
+Creating external application image for antenna_length
+Creating external application image for view_wav
+b'PATX'
+PATX
+/havoc/build/firmware/application/../baseband/PATX.bin
+Creating external application image for sd_wipe
+Creating external application image for playlist_editor
+WARNING: External code address 0xae083201 at offset 0x4d4 in /havoc/build/firmware/application/external_app_playlist_editor.himg
+Creating external application image for snake
+Creating external application image for stopwatch
+WARNING: External code address 0xae0c2300 at offset 0xa4c in /havoc/build/firmware/application/external_app_stopwatch.himg
+Creating external application image for breakout
+b'PABP'
+PABP
+/havoc/build/firmware/application/../baseband/PABP.bin
+WARNING: External code address 0xae086c03 at offset 0xd18 in /havoc/build/firmware/application/external_app_breakout.himg
+Creating external application image for dinogame
+Creating external application image for doom
+WARNING: External code address 0xae084b58 at offset 0x31b4 in /havoc/build/firmware/application/external_app_doom.himg
+Creating external application image for debug_pmem
+Creating external application image for scanner
+b'PWFM'
+PWFM
+/havoc/build/firmware/application/../baseband/PWFM.bin
+WARNING: External code address 0xae06050c at offset 0x3a5c in /havoc/build/firmware/application/external_app_scanner.himg
+Creating external application image for level
+b'PWFM'
+PWFM
+/havoc/build/firmware/application/../baseband/PWFM.bin
+WARNING: External code address 0xae06050c at offset 0x269c in /havoc/build/firmware/application/external_app_level.himg
+Creating external application image for gfxeq
+b'PWFM'
+PWFM
+/havoc/build/firmware/application/../baseband/PWFM.bin
+WARNING: External code address 0xae06050c at offset 0x1b78 in /havoc/build/firmware/application/external_app_gfxeq.himg
+Creating external application image for waterfall_designer
+b'PCAP'
+PCAP
+/havoc/build/firmware/application/../baseband/PCAP.bincopy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_detector_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_fpv_detect.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_spaceinv.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_blackjack.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_battleship.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_ert.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_epirb_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_epirb_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_soundboard.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_game2048.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_bht_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_morse_practice.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_adult_toys_controller.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_flex_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_subcarrx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_siggen.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_morse_radio.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_morseradiotx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_keeloqtx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_rtty_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_rtty_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_pocsag_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_flex_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_time_sink.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_kiss_tnc.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_p25_tx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_two_tone_pager.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_two_tone_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_hard_reset.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_secplustx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_signal_hunter.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_wifi_aim.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_tetra_rx.himg' [binary]
+copy from `/havoc/build/firmware/application/application.elf' [elf32-littlearm] to `/havoc/build/firmware/application/external_app_sdusb.himg' [binary]
+
+Creating external application image for detector_rx
+b'PWFM'
+PWFM
+/havoc/build/firmware/application/../baseband/PWFM.bin
+WARNING: External code address 0xae06050c at offset 0x22c4 in /havoc/build/firmware/application/external_app_detector_rx.himg
+Creating external application image for fpv_detect
+b'PWFM'
+PWFM
+/havoc/build/firmware/application/../baseband/PWFM.bin
+WARNING: External code address 0xae06050c at offset 0x2400 in /havoc/build/firmware/application/external_app_fpv_detect.himg
+Creating external application image for spaceinv
+Creating external application image for blackjack
+Creating external application image for battleship
+b'PPO2'
+PPO2
+/havoc/build/firmware/application/../baseband/PPO2.bin
+WARNING: External code address 0xae034b1c at offset 0x6c0 in /havoc/build/firmware/application/external_app_battleship.himg
+WARNING: External code address 0xae054a49 at offset 0x13b4 in /havoc/build/firmware/application/external_app_battleship.himg
+Creating external application image for ert
+b'PERT'
+PERT
+/havoc/build/firmware/application/../baseband/PERT.bin
+Creating external application image for epirb_rx
+b'PEPI'
+PEPI
+/havoc/build/firmware/application/../baseband/PEPI.bin
+Creating external application image for epirb_tx
+b'PEPT'
+PEPT
+/havoc/build/firmware/application/../baseband/PEPT.bin
+Creating external application image for soundboard
+b'PATX'
+PATX
+/havoc/build/firmware/application/../baseband/PATX.bin
+Creating external application image for game2048
+WARNING: External code address 0xae064b27 at offset 0xa5c in /havoc/build/firmware/application/external_app_game2048.himg
+Creating external application image for bht_tx
+b'PTON'
+PTON
+/havoc/build/firmware/application/../baseband/PTON.bin
+Creating external application image for morse_practice
+b'PABP'
+PABP
+/havoc/build/firmware/application/../baseband/PABP.bin
+Creating external application image for adult_toys_controller
+b'PBTT'
+PBTT
+/havoc/build/firmware/application/../baseband/PBTT.bin
+Creating external application image for flex_rx
+b'PFLX'
+PFLX
+/havoc/build/firmware/application/../baseband/PFLX.bin
+Creating external application image for subcarrx
+b'PSCD'
+PSCD
+/havoc/build/firmware/application/../baseband/PSCD.bin
+Creating external application image for siggen
+b'PSIG'
+PSIG
+/havoc/build/firmware/application/../baseband/PSIG.bin
+Creating external application image for morse_radio
+b'PMRS'
+PMRS
+/havoc/build/firmware/application/../baseband/PMRS.bin
+Creating external application image for morseradiotx
+b'PMRT'
+PMRT
+/havoc/build/firmware/application/../baseband/PMRT.bin
+Creating external application image for keeloqtx
+b'POOK'
+POOK
+/havoc/build/firmware/application/../baseband/POOK.bin
+Creating external application image for rtty_rx
+b'PRTR'
+PRTR
+/havoc/build/firmware/application/../baseband/PRTR.bin
+Creating external application image for rtty_tx
+b'PRTT'
+PRTT
+/havoc/build/firmware/application/../baseband/PRTT.bin
+Creating external application image for pocsag_tx
+b'PFSK'
+PFSK
+/havoc/build/firmware/application/../baseband/PFSK.bin
+Creating external application image for flex_tx
+b'PFSK'
+PFSK
+/havoc/build/firmware/application/../baseband/PFSK.bin
+Creating external application image for time_sink
+b'PTSK'
+PTSK
+/havoc/build/firmware/application/../baseband/PTSK.bin
+Creating external application image for kiss_tnc
+b'PAPR'
+PAPR
+/havoc/build/firmware/application/../baseband/PAPR.bin
+Creating external application image for p25_tx
+b'P25T'
+P25T
+/havoc/build/firmware/application/../baseband/P25T.bin
+Creating external application image for two_tone_pager
+b'PTON'
+PTON
+/havoc/build/firmware/application/../baseband/PTON.bin
+Creating external application image for two_tone_rx
+b'PTNE'
+PTNE
+/havoc/build/firmware/application/../baseband/PTNE.bin
+WARNING: External code address 0xae0c6b23 at offset 0x1c54 in /havoc/build/firmware/application/external_app_two_tone_rx.himg
+Creating external application image for hard_reset
+WARNING: External code address 0xae0b4ba4 at offset 0x840 in /havoc/build/firmware/application/external_app_hard_reset.himg
+Creating external application image for secplustx
+b'POOK'
+POOK
+/havoc/build/firmware/application/../baseband/POOK.bin
+Creating external application image for signal_hunter
+b'HUNT'
+HUNT
+/havoc/build/firmware/application/../baseband/HUNT.bin
+WARNING: External code address 0xae054632 at offset 0x285c in /havoc/build/firmware/application/external_app_signal_hunter.himg
+WARNING: External code address 0xae054632 at offset 0x28f8 in /havoc/build/firmware/application/external_app_signal_hunter.himg
+Creating external application image for wifi_aim
+b'WAIM'
+WAIM
+/havoc/build/firmware/application/../baseband/WAIM.bin
+Creating external application image for tetra_rx
+b'PTET'
+PTET
+/havoc/build/firmware/application/../baseband/PTET.bin
+Creating external application image for sdusb
+b'PUSB'
+PUSB
+/havoc/build/firmware/application/../baseband/PUSB.bin
+[100%] Built target application
+[100%] Generating portapack-mayhem-firmware.bin
+
+check gcc versions from all elf target
+
+gcc version of application.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_noaaapt_rx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_signal_hunter.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_tpms.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_fsktx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_afskrx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_pocsag2.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_am_tv.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_sstvrx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_subghzd.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_wideband_spectrum.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_vor_rx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_nfm_audio.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_adsbrx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_rtty_rx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_bintstream.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_replay.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_sd_over_usb.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_acars.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_ert.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_flex.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_capture.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_jammer.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_tones.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_aprsrx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_siggen.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_time_sink.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_gps_sim.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_ais.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_sstvtx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_wfm_audio.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_tetra_rx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_morsetx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_epirb_tx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_afsktx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_protoview.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_audio_tx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_btletx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_subcar.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_sonde.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_spectrum_painter.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_tonedetect.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_wefaxrx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_vor_tx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_nrfrx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_fskrx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_btlerx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_rtty_tx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_adsbtx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_test.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_rds.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_am_audio.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_wifi_aim.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_morse.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_epirb_rx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_mic_tx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_flash_utility.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_p25_tx.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_audio_beep.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_weather.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+gcc version of baseband_ook.elf is (GNU Tools for Arm Embedded Processors 9-2019-q4-major) 9.2.1 20191025 (release) [ARM/arm-9-branch revision 277599]
+
+
+
+
+checking 93 external apps address memory regions
+external app addr seems correct, pass
+WARNING: Possible external code address 0xae086823 at offset 0xc3a0 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae016825 at offset 0x1b7c8 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae070022 at offset 0x1ffd0 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0c085b at offset 0x24a34 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0818fd at offset 0x29d44 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae011812 at offset 0x441c4 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0c6825 at offset 0x53ca0 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0d2300 at offset 0x551f8 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae030020 at offset 0x674c0 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae046a03 at offset 0x6fc2c in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae063501 at offset 0x6fc68 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae056820 at offset 0x75a9c in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0819ad at offset 0x78928 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0a002b at offset 0x7f860 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae084398 at offset 0x80764 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0a2300 at offset 0x80a9c in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0c6b23 at offset 0x83e58 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0569c2 at offset 0x84518 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0868e1 at offset 0x86718 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae006cb1 at offset 0xb80f0 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xadf00146 at offset 0xb8178 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0103a4 at offset 0xba328 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae044604 at offset 0xc10a4 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xadf3402e at offset 0xc8388 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0a03ed at offset 0xcb870 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xadf001b0 at offset 0xcc840 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xadb96ef0 at offset 0xce5c4 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae0a03ed at offset 0xda590 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae06050c at offset 0xe2340 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xae00355c at offset 0xe7b74 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xadf00021 at offset 0xeed5c in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xadf00368 at offset 0xf81a4 in portapack-mayhem-firmware.bin
+WARNING: Possible external code address 0xadd114a8 at offset 0xf8a1c in portapack-mayhem-firmware.bin
+Space remaining in flash ROM: 3772 bytes ( 0.4 %)
+
+copy /havoc/firmware/tools/fast_flash_pp_and_copy_apps.py to /havoc/build/flash.py
+
+[100%] Built target firmware
+[100%] Generating portapack-mayhem_OCI.ppfw.tar
+APPS/
+APPS/pacman_app.ppmp
+APPS/keyfob.ppma
+APPS/keeloqtx.ppma
+APPS/noaaapt_rx.ppma
+APPS/lge.ppma
+APPS/waterfall_designer.ppma
+APPS/bht_tx.ppma
+APPS/pocsag_tx.ppma
+APPS/stopwatch.ppma
+APPS/hopper.ppma
+APPS/dinogame.ppma
+APPS/morse_practice.ppma
+APPS/siggen.ppma
+APPS/spaceinv.ppma
+APPS/sd_wipe.ppma
+APPS/ert.ppma
+APPS/adult_toys_controller.ppma
+APPS/fpv_detect.ppma
+APPS/cvs_spam.ppma
+APPS/hard_reset.ppma
+APPS/ook_editor.ppma
+APPS/rtty_rx.ppma
+APPS/sstvrx.ppma
+APPS/random_password.ppma
+APPS/sdusb.ppma
+APPS/game2048.ppma
+APPS/spainter.ppma
+APPS/digitalrain_app.ppmp
+APPS/metronome.ppma
+APPS/audio_test.ppma
+APPS/gfxeq.ppma
+APPS/snake.ppma
+APPS/mcu_temperature.ppma
+APPS/level.ppma
+APPS/afsk_rx.ppma
+APPS/two_tone_pager.ppma
+APPS/signal_hunter.ppma
+APPS/calculator.ppma
+APPS/rtty_tx.ppma
+APPS/wefax_rx.ppma
+APPS/fmradio.ppma
+APPS/debug_pmem.ppma
+APPS/detector_rx.ppma
+APPS/view_wav.ppma
+APPS/wardrivemap.ppma
+APPS/breakout.ppma
+APPS/tpmsrx.ppma
+APPS/epirb_rx.ppma
+APPS/tuner.ppma
+APPS/extsensors.ppma
+APPS/adsbtx.ppma
+APPS/doom.ppma
+APPS/antenna_length.ppma
+APPS/same_tx.ppma
+APPS/tpmstx.ppma
+APPS/vor_tx.ppma
+APPS/font_viewer.ppma
+APPS/p25_tx.ppma
+APPS/time_sink.ppma
+APPS/playlist_editor.ppma
+APPS/battleship.ppma
+APPS/morse_radio.ppma
+APPS/flippertx.ppma
+APPS/app_manager.ppma
+APPS/tetris.ppma
+APPS/kiss_tnc.ppma
+APPS/vor_rx.ppma
+APPS/flex_rx.ppma
+APPS/epirb_tx.ppma
+APPS/lcr.ppma
+APPS/mdc_tx.ppma
+APPS/nrf_rx.ppma
+APPS/subcarrx.ppma
+APPS/tetra_rx.ppma
+APPS/blackjack.ppma
+APPS/acars_rx.ppma
+APPS/two_tone_rx.ppma
+APPS/sstvtx.ppma
+APPS/ookbrute.ppma
+APPS/blespam.ppma
+APPS/secplustx.ppma
+APPS/foxhunt_rx.ppma
+APPS/shoppingcart_lock.ppma
+APPS/coasterp.ppma
+APPS/jammer.ppma
+APPS/soundboard.ppma
+APPS/scanner.ppma
+APPS/analogtv.ppma
+APPS/gpssim.ppma
+APPS/protoview.ppma
+APPS/flex_tx.ppma
+APPS/remote.ppma
+APPS/morseradiotx.ppma
+APPS/wifi_aim.ppma
+FIRMWARE/
+FIRMWARE/portapack-mayhem_n_260808.bin
+[100%] Built target ppfw

@@ -1,0 +1,63 @@
+name: Prepare WiFi AIM Fix7 workflow
+
+on:
+  push:
+    paths:
+      - '.github/workflows/prepare_wifi_aim_fix7.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Fix7 build workflow from proven Fix6 pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          src = Path('.github/workflows/build_wifi_aim_full_n260808_fix6.yml')
+          dst = Path('.github/workflows/build_wifi_aim_full_n260808_fix7.yml')
+          s = src.read_text()
+          s = s.replace('FIX6', 'FIX7').replace('Fix6', 'Fix7').replace('fix6', 'fix7')
+
+          needle = "      - name: Remove non-stock to_string_mac_address dependency\n"
+          assert needle in s
+          overlay = r'''      - name: Overlay Fix7 pretrigger and runtime diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp wifi_src/firmware/baseband/proc_wifi_aim.cpp
+          cp hackrf/source_expanded/firmware/baseband/proc_wifi_aim.hpp wifi_src/firmware/baseband/proc_wifi_aim.hpp
+          cp hackrf/source_expanded/firmware/application/external/wifi_aim/ui_wifi_aim.cpp wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp
+          cp hackrf/source_expanded/firmware/application/external/wifi_aim/ui_wifi_aim.hpp wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.hpp
+          grep -q 'kPretriggerSamples' wifi_src/firmware/baseband/proc_wifi_aim.hpp
+          grep -q 'Message::ID::HunterTrigger' wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.hpp
+          grep -q 'timer_ms_ >= 1000' wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp
+
+'''
+          s = s.replace(needle, overlay + needle, 1)
+          s = '# Generated from the hardware-launch-proven Fix6 pipeline.\n' + s
+          dst.write_text(s)
+          PY
+
+      - name: Publish Fix7 workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'wifi-aim-builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/workflows/build_wifi_aim_full_n260808_fix7.yml
+          git commit -m 'Add WiFi AIM n_260808 Fix7 pretrigger build' || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+# trigger revision 2

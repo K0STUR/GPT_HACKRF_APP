@@ -1,0 +1,11 @@
+size=22636
+memory=0x10083EDC
+entry=0x10083F31
+header=3
+version=0x86B64C1D
+tag=b'WAIM'
+m4_offset=6540
+loader_checksum=0x00000000
+stock_operator_new_match=False
+sha256=e33e6c8e5a644cb575359e96e55bf72efb79dac8dfe51004cd2694f591c9688a
+RESULT=FAIL

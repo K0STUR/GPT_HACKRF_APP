@@ -1,0 +1,6 @@
+old_offset=6337
+pad=3
+new_offset=6340
+size=22436
+sha256=608a19dfe9eadbc02695aa7248876a27b4cd08c48990682c78eedaeefcbf7e21
+RESULT=PASS

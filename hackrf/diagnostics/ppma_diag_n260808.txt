@@ -1,0 +1,25 @@
+FILE build_results/wifi_aim_probe_n260808/WiFiAimProbe_n260808.ppma
+size=20820 sha256=8bd3574e22e8c6b688f64678b71422311106eb1a209618c839e82838691616da mod4=0
+memory_location=0x10082FCC
+entry=0x10083021
+header=3 app_version=0x86B64C1D
+name=b'WiFiAimProbe' tag=b'HUNT' m4_offset=8580 m4_size=12236
+expected_memory_location=0x10082FCC
+entry_delta=85
+checksum32_all=0x00000000
+final_word=0x26F90821
+loader_ranges=42 covered=20820 expected=20820 last=[(19456, 512), (19968, 512), (20480, 340)]
+loader_checksum=0x00000000
+
+FILE build_results/wifi_aim_full_n260808/WiFiAIM_n260808.ppma
+size=22592 sha256=e4d8a9adaf20806d6f9fac37abff22bbaa546f3ce752c2fcf90120e2a458a5dc mod4=0
+memory_location=0x10083EDC
+entry=0x10083F31
+header=3 app_version=0x86B64C1D
+name=b'WiFi AIM' tag=b'WAIM' m4_offset=6493 m4_size=16095
+expected_memory_location=0x10083EDF
+entry_delta=85
+checksum32_all=0x00000000
+final_word=0x163C739A
+loader_ranges=46 covered=22592 expected=22592 last=[(21504, 512), (22016, 512), (22528, 64)]
+loader_checksum=0x0B708BF8

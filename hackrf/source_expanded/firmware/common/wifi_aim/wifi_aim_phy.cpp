@@ -1,0 +1,538 @@
+#include "wifi_aim/wifi_aim_phy.hpp"
+
+#include <algorithm>
+#include <cstring>
+
+namespace wifiaim {
+namespace {
+constexpr int8_t kBarker[11] = {+1, -1, +1, +1, -1, +1, +1, +1, -1, -1, -1};
+struct C32 { int32_t i; int32_t q; };
+
+inline uint16_t bits16(const uint8_t* b, std::size_t p, unsigned n) {
+    uint16_t v = 0;
+    for (unsigned k = 0; k < n; ++k) v |= static_cast<uint16_t>(b[p+k] & 1u) << k;
+    return v;
+}
+inline uint8_t bits8(const uint8_t* b, std::size_t p) { return static_cast<uint8_t>(bits16(b,p,8)); }
+inline uint16_t le16(const uint8_t* p) {
+    return static_cast<uint16_t>(static_cast<uint16_t>(p[0]) |
+                                 static_cast<uint16_t>(static_cast<uint16_t>(p[1]) << 8));
+}
+inline uint8_t parity7(uint8_t x) {
+    x ^= x >> 4; x ^= x >> 2; x ^= x >> 1; return x & 1u;
+}
+
+// Small libm-free log2 for relative-power readout. Input is positive and
+// clamped well above the subnormal range by relative_db_x10(). For mantissa
+// m in [1,2), z=(m-1)/(m+1) <= 1/3; a 7th-order atanh series keeps the
+// resulting dB error far below 0.01 dB over the range used by the app.
+inline float fast_log2_positive(float x) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &x, sizeof(bits));
+    const int exponent = static_cast<int>((bits >> 23) & 0xffu) - 127;
+    bits = (bits & 0x007fffffu) | 0x3f800000u;
+    float mantissa = 1.0f;
+    std::memcpy(&mantissa, &bits, sizeof(mantissa));
+    const float z = (mantissa - 1.0f) / (mantissa + 1.0f);
+    const float z2 = z * z;
+    const float ln_m = 2.0f * z * (1.0f + z2 * (1.0f / 3.0f + z2 * (1.0f / 5.0f + z2 * (1.0f / 7.0f))));
+    return static_cast<float>(exponent) + ln_m * 1.4426950409f;
+}
+
+inline int16_t relative_db_x10(float normalized_power) {
+    const float x = std::max(normalized_power, 1.0e-12f);
+    // packet_db_x10 = 10 * (10*log10(power)) = 100*log10(power).
+    const float scaled = 30.102999566f * fast_log2_positive(x);
+    int32_t rounded = static_cast<int32_t>(scaled >= 0.0f ? scaled + 0.5f : scaled - 0.5f);
+    rounded = std::max<int32_t>(-1200, std::min<int32_t>(300, rounded));
+    return static_cast<int16_t>(rounded);
+}
+
+// Two Newton refinements of the classic reciprocal-square-root seed. This is
+// accurate enough for CPE/channel normalization and avoids pulling libm sqrtf
+// into the very small M4 code bank.
+inline float fast_rsqrt(float x) {
+    if (x <= 0.0f) return 0.0f;
+    float y=x;
+    uint32_t bits=0;
+    std::memcpy(&bits,&y,sizeof(bits));
+    bits=0x5f375a86u-(bits>>1);
+    std::memcpy(&y,&bits,sizeof(y));
+    const float half=0.5f*x;
+    y=y*(1.5f-half*y*y);
+    y=y*(1.5f-half*y*y);
+    return y;
+}
+
+inline float fast_sqrt(float x) {
+    return x <= 0.0f ? 0.0f : x*fast_rsqrt(x);
+}
+
+bool parse_prefix_fixed(const uint8_t* f, std::size_t len, M4ApReport& out) {
+    if (len < 36) return false;
+    const uint16_t fc = le16(f);
+    const uint8_t type = static_cast<uint8_t>((fc >> 2) & 3u);
+    const uint8_t subtype = static_cast<uint8_t>((fc >> 4) & 15u);
+    if (type != 0 || (subtype != 8 && subtype != 5)) return false;
+    std::memcpy(out.bssid, f + 16, 6);
+
+    bool ssid_seen = false;
+    std::size_t p = 36;
+    while (p + 2 <= len) {
+        const uint8_t id = f[p];
+        const uint8_t n = f[p+1];
+        p += 2;
+        if (p + n > len) break;
+        if (id == 0) {
+            ssid_seen = true;
+            out.hidden = (n == 0);
+            out.ssid_len = static_cast<uint8_t>(std::min<unsigned>(static_cast<unsigned>(n), 32U));
+            std::memset(out.ssid, 0, sizeof(out.ssid));
+            if (out.ssid_len) std::memcpy(out.ssid, f+p, out.ssid_len);
+        } else if (id == 3 && n >= 1) {
+            out.channel = f[p];
+        }
+        p += n;
+        if (ssid_seen && out.channel) return true;
+    }
+    // DS Parameter Set (IE 3) is optional. The processor fills channel from
+    // the channel currently tuned during the scan when this remains zero.
+    return ssid_seen;
+}
+
+// 64-sample IEEE 802.11 legacy long-training symbol, 20 Msps, IFFT scale 1/64.
+// Derived from the standard 52-subcarrier L-LTF BPSK sequence.
+struct RefC { float r; float i; };
+constexpr RefC kLtf[64] = {
+{0.156250000f,0.000000000f},{-0.005121250f,-0.120325133f},{0.039749698f,-0.111157943f},{0.096831885f,0.082797909f},
+{0.021111770f,0.027885919f},{0.059823845f,-0.087706760f},{-0.115131215f,-0.055180495f},{-0.038315967f,-0.106170913f},
+{0.097541261f,-0.025888348f},{0.053337734f,0.004076326f},{0.000988980f,-0.115004644f},{-0.136804877f,-0.047379811f},
+{0.024475852f,-0.058531796f},{0.058668767f,-0.014938999f},{-0.022483206f,0.160657333f},{0.119239089f,-0.004095594f},
+{0.062500000f,-0.062500000f},{0.036917942f,0.098344150f},{-0.057206346f,0.039298588f},{-0.131262609f,0.065227229f},
+{0.082218322f,0.092356552f},{0.069556847f,0.014121959f},{-0.060310100f,0.081286124f},{-0.056455128f,-0.021803921f},
+{-0.035041261f,-0.150888348f},{-0.121887009f,-0.016566218f},{-0.127324360f,-0.020501380f},{0.075073697f,-0.074040419f},
+{-0.002805944f,0.053774266f},{-0.091887555f,0.115128709f},{0.091716549f,0.105871660f},{0.012284590f,0.097599554f},
+{-0.156250000f,0.000000000f},{0.012284590f,-0.097599554f},{0.091716549f,-0.105871660f},{-0.091887555f,-0.115128709f},
+{-0.002805944f,-0.053774266f},{0.075073697f,0.074040419f},{-0.127324360f,0.020501380f},{-0.121887009f,0.016566218f},
+{-0.035041261f,0.150888348f},{-0.056455128f,0.021803921f},{-0.060310100f,-0.081286124f},{0.069556847f,-0.014121959f},
+{0.082218322f,-0.092356552f},{-0.131262609f,-0.065227229f},{-0.057206346f,-0.039298588f},{0.036917942f,-0.098344150f},
+{0.062500000f,0.062500000f},{0.119239089f,0.004095594f},{-0.022483206f,-0.160657333f},{0.058668767f,0.014938999f},
+{0.024475852f,0.058531796f},{-0.136804877f,0.047379811f},{0.000988980f,0.115004644f},{0.053337734f,-0.004076326f},
+{0.097541261f,0.025888348f},{-0.038315967f,0.106170913f},{-0.115131215f,0.055180495f},{0.059823845f,0.087706760f},
+{0.021111770f,-0.027885919f},{0.096831885f,-0.082797909f},{0.039749698f,0.111157943f},{-0.005121250f,0.120325133f}
+};
+
+// Unshifted 64-bin L-LTF frequency sequence; DC/guards are zero.
+constexpr int8_t kLongBins[64] = {
+0,1,-1,-1,1,1,-1,1,-1,1,-1,-1,-1,-1,-1,1,1,-1,-1,1,-1,1,-1,1,1,1,1,0,0,0,0,0,
+0,0,0,0,0,0,1,1,-1,-1,1,1,-1,1,-1,1,1,1,1,1,1,-1,-1,1,1,-1,1,-1,1,1,1,1
+};
+
+constexpr RefC kTwiddle[32] = {
+{1.000000000f,0.000000000f},{0.995184727f,-0.098017140f},{0.980785280f,-0.195090322f},{0.956940336f,-0.290284677f},
+{0.923879533f,-0.382683432f},{0.881921264f,-0.471396737f},{0.831469612f,-0.555570233f},{0.773010453f,-0.634393284f},
+{0.707106781f,-0.707106781f},{0.634393284f,-0.773010453f},{0.555570233f,-0.831469612f},{0.471396737f,-0.881921264f},
+{0.382683432f,-0.923879533f},{0.290284677f,-0.956940336f},{0.195090322f,-0.980785280f},{0.098017140f,-0.995184727f},
+{0.000000000f,-1.000000000f},{-0.098017140f,-0.995184727f},{-0.195090322f,-0.980785280f},{-0.290284677f,-0.956940336f},
+{-0.382683432f,-0.923879533f},{-0.471396737f,-0.881921264f},{-0.555570233f,-0.831469612f},{-0.634393284f,-0.773010453f},
+{-0.707106781f,-0.707106781f},{-0.773010453f,-0.634393284f},{-0.831469612f,-0.555570233f},{-0.881921264f,-0.471396737f},
+{-0.923879533f,-0.382683432f},{-0.956940336f,-0.290284677f},{-0.980785280f,-0.195090322f},{-0.995184727f,-0.098017140f}
+};
+
+// First 64 values are sufficient for SIGNAL + the prefix-sized DATA window.
+constexpr int8_t kPilotPolarity[64] = {
+1,1,1,1,-1,-1,-1,1,-1,-1,-1,-1,1,1,-1,1,-1,-1,1,1,-1,1,1,-1,1,1,1,1,1,1,-1,1,
+1,1,-1,1,1,-1,-1,1,1,1,-1,1,-1,-1,-1,1,-1,1,-1,-1,1,-1,-1,1,1,1,1,1,-1,-1,1,1
+};
+constexpr int kDataK[48] = {
+-26,-25,-24,-23,-22,-20,-19,-18,-17,-16,-15,-14,-13,-12,-11,-10,-9,-8,-6,-5,-4,-3,-2,-1,
+1,2,3,4,5,6,8,9,10,11,12,13,14,15,16,17,18,19,20,22,23,24,25,26
+};
+constexpr int kPilotK[4] = {-21,-7,7,21};
+constexpr int kPilotBase[4] = {1,1,1,-1};
+
+inline int bin_for_k(int k) { return k < 0 ? 64 + k : k; }
+}  // namespace
+
+bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out) {
+    out = {};
+    out.packet_db_x10 = -1200;
+    if (!s || count < 5000) return false;
+    const std::size_t max_chips = (count * 11u) / 20u;
+
+    for (int phase=0; phase<20; ++phase) {
+        for (int symoff=0; symoff<11; ++symoff) {
+            C32 prev{0,0};
+            bool have_prev=false;
+            std::size_t nb=0;
+            float esum=0.0f;
+            std::size_t chip=static_cast<std::size_t>(symoff);
+            while (chip+10<max_chips && nb<kMaxBits) {
+                C32 c{0,0};
+                bool valid=true;
+                for (int k=0;k<11;++k) {
+                    const std::size_t ci=chip+static_cast<std::size_t>(k);
+                    const std::size_t idx=(ci*20u+static_cast<unsigned>(phase)+5u)/11u;
+                    if (idx>=count) { valid=false; break; }
+                    c.i += static_cast<int32_t>(s[idx].i)*kBarker[k];
+                    c.q += static_cast<int32_t>(s[idx].q)*kBarker[k];
+                }
+                if (!valid) break;
+                if (have_prev) {
+                    const int64_t dot=static_cast<int64_t>(c.i)*prev.i+static_cast<int64_t>(c.q)*prev.q;
+                    scrambled_[nb++]=(dot<0)?1u:0u;
+                    esum += static_cast<float>(c.i)*static_cast<float>(c.i) + static_cast<float>(c.q)*static_cast<float>(c.q);
+                }
+                prev=c; have_prev=true; chip+=11;
+            }
+            if (nb<256) continue;
+            for (std::size_t n=0;n<nb;++n)
+                plain_[n]=(n<7)?0u:static_cast<uint8_t>((scrambled_[n]^scrambled_[n-4]^scrambled_[n-7])&1u);
+
+            for (std::size_t p=64; p+16+48+36*8<nb; ++p) {
+                if (bits16(plain_.data(),p,16)!=0xF3A0) continue;
+                const std::size_t hdr=p+16;
+                if (bits8(plain_.data(),hdr)!=0x0A) continue;
+                const uint16_t length_us=bits16(plain_.data(),hdr+16,16);
+                if (!length_us || (length_us&7u)) continue;
+                const std::size_t expected=length_us/8u;
+                if (expected<36) continue;
+                const std::size_t payload=hdr+48;
+                const std::size_t avail=(nb-payload)/8u;
+                const std::size_t nbytes=std::min({expected,avail,kMaxPrefixBytes});
+                if (nbytes<36) continue;
+                for (std::size_t j=0;j<nbytes;++j) prefix_[j]=bits8(plain_.data(),payload+j*8u);
+                M4ApReport candidate{};
+                if (!parse_prefix_fixed(prefix_.data(),nbytes,candidate)) continue;
+                const float avg=esum/static_cast<float>(std::max<std::size_t>(1,nb));
+                const float full=11.0f*127.0f;
+                candidate.packet_db_x10=relative_db_x10(avg/(full*full));
+                candidate.phy_rate_mbps=1;
+                out=candidate;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1,
+                                      float& cfo_step_r, float& cfo_step_i, float& score) {
+    if (!s || count < 500) return false;
+    float ref_e = 0.0f;
+    for (const auto& r : kLtf) ref_e += r.r*r.r + r.i*r.i;
+    const std::size_t limit = std::min<std::size_t>(count - 64u, static_cast<std::size_t>(2200u));
+    float best = 0.0f;
+    std::size_t best_d = 0;
+    for (std::size_t d=0; d<limit; ++d) {
+        float cr=0.0f, ci=0.0f, ey=0.0f;
+        for (std::size_t n=0;n<64;++n) {
+            const float yr=s[d+n].i, yi=s[d+n].q;
+            const float rr=kLtf[n].r, ri=kLtf[n].i;
+            cr += rr*yr + ri*yi;
+            ci += rr*yi - ri*yr;
+            ey += yr*yr + yi*yi;
+        }
+        if (ey < 1.0f) continue;
+        const float q=(cr*cr+ci*ci)/(ref_e*ey);
+        if (q>best) { best=q; best_d=d; }
+    }
+    if (best < 0.22f) return false;
+
+    // Correlation also peaks at the second L-LTF. Prefer the preceding copy.
+    if (best_d>=64) {
+        const std::size_t d=best_d-64;
+        float cr=0.0f, ci=0.0f, ey=0.0f;
+        for (std::size_t n=0;n<64;++n) {
+            const float yr=s[d+n].i, yi=s[d+n].q;
+            const float rr=kLtf[n].r, ri=kLtf[n].i;
+            cr += rr*yr + ri*yi; ci += rr*yi - ri*yr; ey += yr*yr+yi*yi;
+        }
+        const float q = ey>1.0f ? (cr*cr+ci*ci)/(ref_e*ey) : 0.0f;
+        if (q > 0.80f*best) best_d=d;
+    }
+    if (best_d+128>count) return false;
+
+    float pr=0.0f, pi=0.0f;
+    for (std::size_t n=0;n<64;++n) {
+        const float ar=s[best_d+n].i, ai=s[best_d+n].q;
+        const float br=s[best_d+64+n].i, bi=s[best_d+64+n].q;
+        pr += ar*br + ai*bi;
+        pi += ar*bi - ai*br;
+    }
+    // pr+j*pi is the phase advance over exactly 64 samples. Instead of
+    // atan2()+sin()/cos(), normalize it and take six principal complex square
+    // roots to obtain exp(j*omega). Conjugating gives the per-sample CFO
+    // correction exp(-j*omega). This avoids a sizeable libm dependency on M4.
+    const float mag2=pr*pr+pi*pi;
+    if (mag2<1.0e-12f) return false;
+    const float inv_mag=fast_rsqrt(mag2);
+    float root_r=pr*inv_mag, root_i=pi*inv_mag;
+    for (unsigned k=0;k<6;++k) {
+        const float a=std::max(0.0f,(1.0f+root_r)*0.5f);
+        const float b=std::max(0.0f,(1.0f-root_r)*0.5f);
+        const float next_r=fast_sqrt(a);
+        float next_i=fast_sqrt(b);
+        if (root_i<0.0f) next_i=-next_i;
+        root_r=next_r; root_i=next_i;
+    }
+    cfo_step_r=root_r;
+    cfo_step_i=-root_i;
+    ltf1=best_d; score=best;
+    return true;
+}
+
+void M4OfdmWifiDecoder::load_fft(const IQ8* s, std::size_t start, std::size_t origin,
+                                 float cfo_step_r, float cfo_step_i) {
+    // Build correction phase for (start-origin) using integer complex power,
+    // then advance one sample at a time. All callers use start >= origin.
+    uint32_t delta=static_cast<uint32_t>(start-origin);
+    float rr=1.0f, ri=0.0f;
+    float br=cfo_step_r, bi=cfo_step_i;
+    while (delta) {
+        if (delta&1u) {
+            const float nr=rr*br-ri*bi;
+            const float ni=rr*bi+ri*br;
+            rr=nr; ri=ni;
+        }
+        const float nr=br*br-bi*bi;
+        const float ni=2.0f*br*bi;
+        br=nr; bi=ni;
+        delta>>=1;
+    }
+    for (std::size_t n=0;n<64;++n) {
+        const float xr=s[start+n].i, xi=s[start+n].q;
+        fft_[n].r=xr*rr-xi*ri;
+        fft_[n].i=xr*ri+xi*rr;
+        const float nr=rr*cfo_step_r-ri*cfo_step_i;
+        const float ni=rr*cfo_step_i+ri*cfo_step_r;
+        rr=nr; ri=ni;
+    }
+    fft64();
+}
+
+void M4OfdmWifiDecoder::fft64() {
+    // Bit reversal.
+    for (unsigned i=1,j=0;i<64;++i) {
+        unsigned bit=32;
+        for (; j&bit; bit>>=1) j^=bit;
+        j^=bit;
+        if (i<j) std::swap(fft_[i],fft_[j]);
+    }
+    for (unsigned len=2;len<=64;len<<=1) {
+        const unsigned half=len>>1;
+        const unsigned step=64/len;
+        for (unsigned base=0;base<64;base+=len) {
+            for (unsigned j=0;j<half;++j) {
+                const auto w=kTwiddle[j*step];
+                const FCpx b=fft_[base+j+half];
+                const FCpx v{b.r*w.r-b.i*w.i,b.r*w.i+b.i*w.r};
+                const FCpx u=fft_[base+j];
+                fft_[base+j]={u.r+v.r,u.i+v.i};
+                fft_[base+j+half]={u.r-v.r,u.i-v.i};
+            }
+        }
+    }
+}
+
+M4OfdmWifiDecoder::FCpx M4OfdmWifiDecoder::equalized(int k) const {
+    const int b=bin_for_k(k);
+    const auto ub = static_cast<std::size_t>(b);
+    const FCpx y=fft_[ub], h=h_[ub];
+    const float den=h.r*h.r+h.i*h.i;
+    if (den<1e-6f) return {};
+    return {(y.r*h.r+y.i*h.i)/den,(y.i*h.r-y.r*h.i)/den};
+}
+
+bool M4OfdmWifiDecoder::hard_symbol(const IQ8* s, std::size_t fft_start, std::size_t origin,
+                                     float cfo_step_r, float cfo_step_i, unsigned pilot_symbol_index,
+                                     unsigned n_bpsc, uint8_t* out_bits) {
+    if (!out_bits || (n_bpsc != 1u && n_bpsc != 2u && n_bpsc != 4u)) return false;
+    load_fft(s,fft_start,origin,cfo_step_r,cfo_step_i);
+    const int pol=kPilotPolarity[pilot_symbol_index & 63u];
+    float cr=0.0f, ci=0.0f;
+    for (unsigned p=0;p<4;++p) {
+        FCpx z=equalized(kPilotK[p]);
+        const float e=static_cast<float>(kPilotBase[p]*pol);
+        cr += z.r*e; ci += z.i*e;
+    }
+    const float cpe_pow=cr*cr+ci*ci;
+    if (cpe_pow<1e-8f) return false;
+    const float inv_cpe=fast_rsqrt(cpe_pow);
+    // Rotate by conj(CPE) and normalize the CPE magnitude. The channel estimate
+    // already normalizes RF gain, so 16-QAM inner/outer threshold is 2/sqrt(10).
+    constexpr float qam16_inner_threshold=0.632455532f;
+    unsigned o=0;
+    for (unsigned n=0;n<48;++n) {
+        const FCpx z=equalized(kDataK[n]);
+        const float re=(z.r*cr+z.i*ci)*inv_cpe;
+        const float im=(z.i*cr-z.r*ci)*inv_cpe;
+        if (n_bpsc==1u) {
+            out_bits[o++]=(re<0.0f)?1u:0u;
+        } else if (n_bpsc==2u) {
+            // QPSK Gray map used by IEEE legacy OFDM: one sign bit per axis.
+            out_bits[o++]=(re<0.0f)?1u:0u;
+            out_bits[o++]=(im<0.0f)?1u:0u;
+        } else {
+            // 16-QAM Gray map. Bit order per subcarrier is I-sign, I-inner,
+            // Q-sign, Q-inner (matching the coded-bit grouping before mapping).
+            out_bits[o++]=(re<0.0f)?1u:0u;
+            out_bits[o++]=((re<0.0f?-re:re)<qam16_inner_threshold)?1u:0u;
+            out_bits[o++]=(im<0.0f)?1u:0u;
+            out_bits[o++]=((im<0.0f?-im:im)<qam16_inner_threshold)?1u:0u;
+        }
+    }
+    return true;
+}
+
+void M4OfdmWifiDecoder::deinterleave(const uint8_t* in, uint8_t* out, unsigned n_cbps, unsigned n_bpsc) {
+    if (!in || !out || !n_cbps) return;
+    const unsigned s=std::max(n_bpsc/2u,1u);
+    // Inverse of the IEEE two-step legacy OFDM interleaver. This is written
+    // with integer arithmetic so it is deterministic on the M4.
+    for (unsigned k=0;k<n_cbps;++k) {
+        const unsigned first=s*(k/s)+((k+(16u*k)/n_cbps)%s);
+        const unsigned second=16u*first-(n_cbps-1u)*((16u*first)/n_cbps);
+        out[second]=in[k];
+    }
+}
+
+bool M4OfdmWifiDecoder::rate_params(unsigned signal_rate_parser_value, unsigned& n_bpsc,
+                                    unsigned& n_cbps, unsigned& n_dbps, uint8_t& rate_mbps) {
+    // SIGNAL RATE field is transmitted MSB-first in the 4-bit subfield while
+    // our small parser accumulates it LSB-first; therefore the parser values
+    // are bit-reversed relative to the familiar 0xD/0x5/0x9 constants.
+    switch (signal_rate_parser_value) {
+        case 11u: n_bpsc=1; n_cbps=48;  n_dbps=24; rate_mbps=6;  return true; // 0xD
+        case 10u: n_bpsc=2; n_cbps=96;  n_dbps=48; rate_mbps=12; return true; // 0x5
+        case 9u:  n_bpsc=4; n_cbps=192; n_dbps=96; rate_mbps=24; return true; // 0x9
+        default: return false;
+    }
+}
+
+bool M4OfdmWifiDecoder::viterbi(const uint8_t* coded, std::size_t coded_count,
+                                 uint8_t* decoded, std::size_t& decoded_count) {
+    if (!coded || !decoded || (coded_count&1u)) return false;
+    const std::size_t steps=coded_count/2u;
+    if (!steps || steps>kMaxDecodedBits) return false;
+    constexpr uint16_t INF=30000;
+    uint16_t pm[64], nm[64];
+    for (unsigned s=0;s<64;++s) pm[s]=INF;
+    pm[0]=0;
+    for (std::size_t t=0;t<steps;++t) {
+        uint64_t decisions=0;
+        const uint8_t r0=coded[2*t]&1u, r1=coded[2*t+1]&1u;
+        for (unsigned ns=0;ns<64;++ns) {
+            const uint8_t bit=ns&1u;
+            const unsigned p0=ns>>1;
+            const unsigned p1=p0|32u;
+            const uint8_t reg0=static_cast<uint8_t>(((p0<<1)&0x7e)|bit);
+            const uint8_t reg1=static_cast<uint8_t>(((p1<<1)&0x7e)|bit);
+            const uint16_t bm0=static_cast<uint16_t>((parity7(reg0&0155)!=r0)+(parity7(reg0&0117)!=r1));
+            const uint16_t bm1=static_cast<uint16_t>((parity7(reg1&0155)!=r0)+(parity7(reg1&0117)!=r1));
+            const uint16_t m0=static_cast<uint16_t>(pm[p0]+bm0);
+            const uint16_t m1=static_cast<uint16_t>(pm[p1]+bm1);
+            if (m1<m0) { nm[ns]=m1; decisions|=(uint64_t{1}<<ns); }
+            else nm[ns]=m0;
+        }
+        std::memcpy(pm,nm,sizeof(pm));
+        survivor_[t]=decisions;
+    }
+    unsigned state=0;
+    for (unsigned s=1;s<64;++s) if (pm[s]<pm[state]) state=s;
+    for (std::size_t tt=steps;tt-- > 0;) {
+        decoded[tt]=static_cast<uint8_t>(state&1u);
+        const unsigned hi=static_cast<unsigned>((survivor_[tt]>>state)&1u);
+        state=(state>>1)|(hi<<5);
+    }
+    decoded_count=steps;
+    return true;
+}
+
+bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out) {
+    out={}; out.packet_db_x10=-1200;
+    std::size_t L=0; float cfo_step_r=1.0f, cfo_step_i=0.0f, ltf_score=0.0f;
+    if (!find_ltf(s,count,L,cfo_step_r,cfo_step_i,ltf_score)) return false;
+    if (L+224+64>count) return false;
+
+    // Channel estimate from two repeated L-LTF symbols.
+    load_fft(s,L,L,cfo_step_r,cfo_step_i);
+    for (unsigned b=0;b<64;++b) h_[b]=fft_[b];
+    load_fft(s,L+64,L,cfo_step_r,cfo_step_i);
+    for (unsigned b=0;b<64;++b) {
+        if (!kLongBins[b]) { h_[b]={}; continue; }
+        const float sign=static_cast<float>(kLongBins[b]);
+        h_[b].r=(h_[b].r+fft_[b].r)*0.5f*sign;
+        h_[b].i=(h_[b].i+fft_[b].i)*0.5f*sign;
+    }
+
+    uint8_t rx_bits[kMaxCbps]{};
+    uint8_t de_bits[kMaxCbps]{};
+    if (!hard_symbol(s,L+144,L,cfo_step_r,cfo_step_i,0,1,rx_bits)) return false; // SIGNAL is always BPSK 1/2
+    deinterleave(rx_bits,de_bits,48,1);
+    std::size_t sig_dec=0;
+    if (!viterbi(de_bits,48,decoded_.data(),sig_dec) || sig_dec<24) return false;
+    bool parity=false;
+    for (unsigned i=0;i<17;++i) parity^=(decoded_[i]&1u)!=0;
+    if (parity!=(decoded_[17]!=0)) return false;
+    unsigned rate_parser=0;
+    for (unsigned i=0;i<4;++i) if (decoded_[i]) rate_parser|=1u<<i;
+    unsigned n_bpsc=0,n_cbps=0,n_dbps=0; uint8_t rate_mbps=0;
+    if (!rate_params(rate_parser,n_bpsc,n_cbps,n_dbps,rate_mbps)) return false;
+    unsigned psdu_len=0;
+    for (unsigned i=5;i<17;++i) if (decoded_[i]) psdu_len|=1u<<(i-5);
+    if (psdu_len<36 || psdu_len>2304) return false;
+
+    const std::size_t want_bytes=std::min<std::size_t>(psdu_len,kMaxPrefixBytes);
+    const std::size_t want_bits=std::min<std::size_t>(kMaxDecodedBits,16u+want_bytes*8u+80u);
+    std::size_t symbols=(want_bits+n_dbps-1u)/n_dbps;
+    const std::size_t available_symbols=(count>(L+224+64)) ? 1u+(count-(L+224+64))/80u : 0u;
+    symbols=std::min(symbols,available_symbols);
+    if (!symbols) return false;
+
+    std::size_t coded_n=0;
+    for (std::size_t si=0;si<symbols && coded_n+n_cbps<=kMaxCodedBits;++si) {
+        const std::size_t fft_start=L+224+si*80u;
+        if (fft_start+64>count) break;
+        if (!hard_symbol(s,fft_start,L,cfo_step_r,cfo_step_i,static_cast<unsigned>(si+1),n_bpsc,rx_bits)) return false;
+        deinterleave(rx_bits,de_bits,n_cbps,n_bpsc);
+        std::memcpy(coded_.data()+coded_n,de_bits,n_cbps);
+        coded_n+=n_cbps;
+    }
+    std::size_t data_dec=0;
+    if (coded_n<static_cast<std::size_t>(n_cbps) || !viterbi(coded_.data(),coded_n,decoded_.data(),data_dec) || data_dec<16+36*8) return false;
+
+    // IEEE 802.11 descrambler: derive the seven-bit state from the first seven
+    // decoded SERVICE bits (which were zero before scrambling).
+    unsigned state=0;
+    for (unsigned i=0;i<7;++i) if (decoded_[i]) state|=1u<<(6-i);
+    bytes_.fill(0);
+    bytes_[0]=static_cast<uint8_t>(state);
+    const std::size_t max_out_bits=std::min<std::size_t>(data_dec,bytes_.size()*8u);
+    for (std::size_t i=7;i<max_out_bits;++i) {
+        const unsigned feedback=((state&64u)?1u:0u)^((state&8u)?1u:0u);
+        const unsigned bit=feedback^(decoded_[i]&1u);
+        bytes_[i/8u]|=static_cast<uint8_t>(bit<<(i%8u));
+        state=((state<<1)&0x7e)|feedback;
+    }
+    const std::size_t produced=(max_out_bits/8u>2u)?(max_out_bits/8u-2u):0u;
+    const std::size_t prefix_n=std::min<std::size_t>({produced,want_bytes,kMaxPrefixBytes});
+    if (prefix_n<36) return false;
+    M4ApReport candidate{};
+    if (!parse_prefix_fixed(bytes_.data()+2,prefix_n,candidate)) return false;
+
+    // Relative packet level from the L-LTF capture. This is not calibrated dBm;
+    // it is intentionally stable for delta/aim measurements at fixed gain.
+    float e=0.0f;
+    for (std::size_t n=0;n<128 && L+n<count;++n) {
+        const float xr=s[L+n].i, xi=s[L+n].q;
+        e+=xr*xr+xi*xi;
+    }
+    const float avg=e/128.0f;
+    candidate.packet_db_x10=relative_db_x10(avg/(127.0f*127.0f));
+    candidate.phy_rate_mbps=rate_mbps;
+    out=candidate;
+    return true;
+}
+
+}  // namespace wifiaim

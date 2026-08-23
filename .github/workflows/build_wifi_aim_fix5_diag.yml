@@ -1,0 +1,141 @@
+name: Build WiFi AIM fix5 diagnostic
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build_wifi_aim_fix5_diag.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct sources
+        id: src
+        shell: bash
+        run: |
+          set +e
+          cat wifi_aim_n260808/src.part* > /tmp/wifi_aim_src.b64
+          base64 -d /tmp/wifi_aim_src.b64 > /tmp/wifi_aim_src.tar.gz
+          mkdir -p wifi_src
+          tar -xzf /tmp/wifi_aim_src.tar.gz -C wifi_src
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact Mayhem n_260808
+        id: mayhem
+        if: steps.src.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem
+          cd mayhem
+          git checkout nightly-tag-2026-08-08
+          git submodule update --init --recursive
+          test "$(git rev-parse HEAD)" = "367eaf54c0f51f62448d9f2d9585fd3629f6b770"
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Integrate isolated WiFi AIM
+        id: integrate
+        if: steps.mayhem.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          cp -a wifi_src/firmware/application/external/wifi_aim mayhem/firmware/application/external/
+          cp wifi_src/firmware/baseband/proc_wifi_aim.* mayhem/firmware/baseband/
+          cp wifi_src/firmware/common/wifi_aim_wire.hpp mayhem/firmware/common/
+          cp -a wifi_src/firmware/common/wifi_aim mayhem/firmware/common/
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('mayhem/firmware/application/external/external.cmake'); s=p.read_text()
+          a='  external/signal_hunter/ui_signal_hunter.cpp'
+          if 'external/wifi_aim/main.cpp' not in s:
+              s=s.replace(a,a+'\n\n  #wifi_aim\n  external/wifi_aim/main.cpp\n  external/wifi_aim/ui_wifi_aim.cpp',1)
+          la='  signal_hunter\n'
+          if '\twifi_aim\n' not in s and '  wifi_aim\n' not in s:
+              s=s.replace(la,la+'\twifi_aim\n',1)
+          p.write_text(s)
+
+          p=Path('mayhem/firmware/application/external/external.ld'); s=p.read_text()
+          ma='    ram_external_app_tetra_rx              (rwx) : org = 0xAE0C0000, len = 32k'
+          if 'ram_external_app_wifi_aim' not in s:
+              s=s.replace(ma,ma+'\n    ram_external_app_wifi_aim              (rwx) : org = 0xAE0D0000, len = 32k',1)
+          sa='} > ram_external_app_signal_hunter'
+          if '.external_app_wifi_aim' not in s:
+              block='''\n\n    .external_app_wifi_aim : ALIGN(4) SUBALIGN(4)\n    {\n        KEEP(*(.external_app.app_wifi_aim.application_information));\n        */external/wifi_aim/*(.text*);\n        */external/wifi_aim/*(.rodata*);\n        */external/wifi_aim/*(.data*);\n        */external/wifi_aim/*(.gnu.linkonce*);\n        */external/wifi_aim/*(.ARM.extab*);\n        */external/wifi_aim/*(.ARM.exidx*);\n        . = ALIGN(4);\n    } > ram_external_app_wifi_aim'''
+              s=s.replace(sa,sa+block,1)
+          p.write_text(s)
+
+          p=Path('mayhem/firmware/tools/external_app_info.py'); s=p.read_text()
+          for old in ['external_apps_address_end = 0xAE0B0000','external_apps_address_end = 0xAE0D0000']:
+              s=s.replace(old,'external_apps_address_end = 0xAE0E0000')
+          p.write_text(s)
+
+          p=Path('mayhem/firmware/baseband/CMakeLists.txt'); s=p.read_text(); a='DeclareTargets(HUNT signal_hunter)'
+          if 'DeclareTargets(WAIM wifi_aim)' not in s:
+              s=s.replace(a,a+'''\n\n### WiFi AIM\nset(MODE_FLAGS "-Os")\nset(MODE_CPPSRC\n    proc_wifi_aim.cpp\n    ${COMMON}/wifi_aim/wifi_aim_phy.cpp\n)\nDeclareTargets(WAIM wifi_aim)\nset(MODE_FLAGS "-O3")''',1)
+          p.write_text(s)
+          PY
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Build toolchain and firmware
+        id: build
+        if: steps.integrate.outputs.rc == '0'
+        shell: bash
+        run: |
+          set +e
+          mkdir -p build_results/wifi_aim_fix5_diag
+          cd mayhem
+          docker build -t portapack-dev -f dockerfile-nogit . > ../build_results/wifi_aim_fix5_diag/DOCKER.log 2>&1
+          drc=$?
+          mkdir -p build
+          if [ "$drc" -eq 0 ]; then
+            docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev > ../build_results/wifi_aim_fix5_diag/BUILD.log 2>&1
+            brc=$?
+          else
+            brc=999
+          fi
+          echo "docker_rc=$drc" >> "$GITHUB_OUTPUT"
+          echo "build_rc=$brc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Collect diagnostics and outputs
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          OUT=build_results/wifi_aim_fix5_diag
+          mkdir -p "$OUT"
+          {
+            echo "src_rc=${{ steps.src.outputs.rc }}"
+            echo "mayhem_rc=${{ steps.mayhem.outputs.rc }}"
+            echo "integrate_rc=${{ steps.integrate.outputs.rc }}"
+            echo "docker_rc=${{ steps.build.outputs.docker_rc }}"
+            echo "build_rc=${{ steps.build.outputs.build_rc }}"
+          } > "$OUT/STATUS.txt"
+
+          if [ -f mayhem/build/firmware/application/wifi_aim.ppma ]; then
+            cp mayhem/build/firmware/application/wifi_aim.ppma "$OUT/WiFiAIM_n260808_fix5.ppma"
+            cp mayhem/build/firmware/baseband/WAIM.bin "$OUT/WAIM.bin" 2>/dev/null || true
+            python3 - <<'PY' >> "$OUT/STATUS.txt"
+          import struct,hashlib
+          from pathlib import Path
+          p=Path('build_results/wifi_aim_fix5_diag/WiFiAIM_n260808_fix5.ppma')
+          b=p.read_bytes(); mem,entry,hdr,ver=struct.unpack_from('<IIII',b,0); tag=b[76:80]; off=struct.unpack_from('<I',b,80)[0]
+          print('size='+str(len(b))); print(f'memory=0x{mem:08X}'); print(f'entry=0x{entry:08X}'); print('header='+str(hdr)); print(f'version=0x{ver:08X}'); print('tag='+repr(tag)); print('m4_offset='+str(off)); print('m4_mod4='+str(off%4)); print('sha256='+hashlib.sha256(b).hexdigest())
+          PY
+            docker run --rm --entrypoint sh -v "$PWD/mayhem":/havoc portapack-dev -lc "arm-none-eabi-nm -n /havoc/build/firmware/application/application.elf | grep _Znwj | head -5" > "$OUT/CORE_SYMBOLS.txt" 2>&1 || true
+            sha256sum "$OUT/WiFiAIM_n260808_fix5.ppma" > "$OUT/SHA256SUMS.txt"
+          fi
+          tail -n 400 "$OUT/BUILD.log" > "$OUT/BUILD_TAIL.txt" 2>/dev/null || true
+
+          git config user.name 'wifi-aim-builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f "$OUT"
+          git commit -m 'Publish WiFi AIM fix5 diagnostic result' || true
+          git pull --rebase origin main || true
+          git push origin HEAD:main || true

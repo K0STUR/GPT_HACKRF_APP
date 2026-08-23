@@ -1,0 +1,9 @@
+hackrf/source_expanded/SOURCE_TREE.txt
+hackrf/source_expanded/firmware/application/external/wifi_aim/main.cpp
+hackrf/source_expanded/firmware/application/external/wifi_aim/ui_wifi_aim.cpp
+hackrf/source_expanded/firmware/application/external/wifi_aim/ui_wifi_aim.hpp
+hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp
+hackrf/source_expanded/firmware/baseband/proc_wifi_aim.hpp
+hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.hpp
+hackrf/source_expanded/firmware/common/wifi_aim_wire.hpp

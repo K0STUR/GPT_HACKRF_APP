@@ -1,0 +1,11 @@
+build_rc=0
+file_size=22592
+memory_location=0x10083EDC
+entry=0x10083F31 entry_delta=85
+header=3 app_version=0x86B64C1D
+tag=b'WAIM'
+m4_offset=6496 mod4=0
+m4_payload_plus_checksum=16096
+loader_checksum=0x00000000
+sha256=c3e16d35398f28e2130ad992951f5368ecd6f142a473f4198514fe0adcfee49b
+RESULT=PASS

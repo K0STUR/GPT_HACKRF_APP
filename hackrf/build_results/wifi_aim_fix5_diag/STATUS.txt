@@ -1,0 +1,14 @@
+src_rc=0
+mayhem_rc=0
+integrate_rc=0
+docker_rc=0
+build_rc=0
+size=22636
+memory=0x10083EDC
+entry=0x10083F31
+header=3
+version=0x86B64C1D
+tag=b'WAIM'
+m4_offset=6540
+m4_mod4=0
+sha256=af25ebc1dcf9eb9b6367447f926bef3b9bde2f3000de6337d2afef77b838a402
