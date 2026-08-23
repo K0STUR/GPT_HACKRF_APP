@@ -1,0 +1,53 @@
+name: One-time migrate HackRF project from GPT
+
+on:
+  push:
+    paths:
+      - '.github/workflows/migrate_from_gpt.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout destination repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone source GPT repository
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/K0STUR/GPT.git /tmp/GPT_SOURCE
+
+      - name: Replace destination contents with all non-FORDstecki files
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          shopt -s dotglob nullglob
+          for item in /tmp/GPT_SOURCE/*; do
+            name="$(basename "$item")"
+            case "$name" in
+              .git|FORDstecki) continue ;;
+            esac
+            cp -a "$item" ./
+          done
+          test -d hackrf
+          test ! -e FORDstecki
+          echo 'Top-level migrated content:'
+          find . -mindepth 1 -maxdepth 2 -not -path './.git*' -print | sort
+
+      - name: Commit migrated snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ChatGPT Migration'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git status --short
+          git commit -m 'Migrate HackRF project from K0STUR/GPT [skip ci]'
+          git push origin HEAD:main
