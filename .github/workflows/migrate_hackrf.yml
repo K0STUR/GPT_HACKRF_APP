@@ -1,3 +1,4 @@
+# migration trigger 2026-08-23
 name: Migrate HackRF project from GPT
 
 on:
@@ -50,7 +51,8 @@ jobs:
           This repository was split from `K0STUR/GPT` so HackRF/WiFi AIM development and GitHub Actions are isolated from the FORDstecki project.
           EOF
 
-          rm -f MIGRATION_BOOTSTRAP.md TEST.txt
+          rm -f MIGRATION_BOOTSTRAP.md MIGRATION_ACCESS_OK.txt MIGRATION_TEST.txt TEST.txt
+          rm -f .github/workflows/migrate_from_gpt.yml .github/workflows/x.txt
 
       - name: Verify copied project
         shell: bash
