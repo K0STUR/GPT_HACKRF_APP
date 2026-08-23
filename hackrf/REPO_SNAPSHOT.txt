@@ -1,6 +1,6 @@
 HackRF handoff repository snapshot
-assembled_utc=2026-08-23T21:58:57Z
-source_commit=10655da4892b0501c7cc319e38e04d36f6795f8b
+assembled_utc=2026-08-22T21:23:00Z
+source_commit=05c1af9c86cfbbcc3567decc0223c4e6fa55676c
 source_branch=main
 
 Mayhem target: n_260808
@@ -35,8 +35,6 @@ build_wifi_aim_full_n260808_fix3.yml
 build_wifi_aim_full_n260808_fix4.yml
 build_wifi_aim_full_n260808_fix5.yml
 build_wifi_aim_full_n260808_fix5_signalhunter.yml
-build_wifi_aim_full_n260808_fix6.yml
-build_wifi_aim_full_n260808_fix7.yml
 build_wifi_aim_lowmem_n260808.yml
 build_wifi_aim_probe.yml
 build_wifi_aim_probe_n260808.yml

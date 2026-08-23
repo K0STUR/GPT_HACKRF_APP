@@ -1,9 +1,13 @@
 # GPT_HACKRF_APP
 
-Development repository for the HackRF One + PortaPack Mayhem WiFi AIM application.
+Repozytorium projektu HackRF One + PortaPack Mayhem — aplikacja **WiFi AIM**.
 
-Main project documentation and the current development state are in [`hackrf/`](hackrf/).
+Projekt został wydzielony z `K0STUR/GPT`, aby development HackRF/WiFi AIM i workflowy GitHub Actions były oddzielone od projektu FORDstecki.
 
-This repository was split from `K0STUR/GPT` so HackRF/WiFi AIM development, source, build results, diagnostics, and GitHub Actions are isolated from the FORDstecki project.
+Najważniejsze pliki:
+- `hackrf/README.md`
+- `hackrf/PROJECT_STATUS.md`
+- `hackrf/NEXT_CHAT_PROMPT.md`
+- `hackrf/TEST_LOG.md`
 
-Current stock Mayhem target: `n_260808` (`nightly-tag-2026-08-08`, commit `367eaf54c0f51f62448d9f2d9585fd3629f6b770`).
+Bieżący target: stock PortaPack Mayhem `n_260808` (`nightly-tag-2026-08-08`, commit `367eaf54c0f51f62448d9f2d9585fd3629f6b770`).
