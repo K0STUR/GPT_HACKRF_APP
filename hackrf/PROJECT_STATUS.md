@@ -1,9 +1,9 @@
 # HackRF / PortaPack — PROJECT STATUS
 
-Updated: 2026-08-23
+Updated: 2026-08-24
 
 Canonical repository: **`K0STUR/GPT_HACKRF_APP`**.
-The old `K0STUR/GPT` repository is now reserved for `FORDstecki` only.
+The old `K0STUR/GPT` repository is reserved for `FORDstecki` only.
 
 ## Current device firmware
 - Device Mayhem: stock `n_260808`
@@ -11,7 +11,7 @@ The old `K0STUR/GPT` repository is now reserved for `FORDstecki` only.
 - Upstream commit: `367eaf54c0f51f62448d9f2d9585fd3629f6b770`
 - Preserve stock firmware unless the user explicitly agrees otherwise.
 
-## Proven baseline — Fix6
+## Proven hardware baseline — Fix6
 Fix6 solved the stock-firmware loader/core-ABI blocker and was tested on real hardware.
 
 Artifact:
@@ -23,12 +23,8 @@ SHA-256:
 Static audit:
 - workflow run `32631639944` SUCCESS
 - size `22720`
-- version `0x86B64C1D`
-- M4 tag `WAIM`
-- shared core symbols `7118`
 - core symbol drift `0`
 - ABI rebase patches `0`
-- same-address core refs `81`
 - ambiguous `0`
 - unresolved `0`
 - checksum `0`
@@ -40,46 +36,48 @@ Real hardware:
 - red RF/RSSI bar responds to antenna
 - SCAN completes but reports `0 AP`
 
-Therefore the current functional problem is downstream in the M4 capture / Wi-Fi PHY decode / AP-report path, not external-app loading.
+Therefore the remaining problem is downstream in M4 capture / Wi-Fi PHY decode / AP-report path, not external-app loading.
 
-## Fix7 rationale and source changes
-Source inspection after Fix6's `0 AP` result identified two concrete weaknesses:
-
-1. **Missing IQ pre-trigger history.** Fix6 started saving IQ only in the DMA block that crossed the energy threshold; a Wi-Fi preamble/L-LTF could already have started in the previous block.
-2. **Unsafe M4 member initialization order.** Upstream Mayhem warns that auto-starting `BasebandThread` should be declared last. Fix7 moves `BasebandThread` and `RSSIThread` after processor state/buffers.
-
-Fix7 source under `hackrf/source_expanded/` therefore adds:
-- 2048 IQ samples of pre-trigger history using the existing capture buffer
-- safer M4 thread member order
+## Fix7 — useful diagnostics, static FAIL
+Fix7 added the right M4-side ideas:
+- 2048 IQ pre-trigger samples using the existing capture buffer
+- safer M4 member order with auto-starting threads last
 - lower detector threshold (~1.25x floor + margin)
-- scan dwell 1000 ms/channel
-- `M/C/D` diagnostics via the existing stock `HunterTriggerMessage` ABI
+- 1000 ms/channel scan dwell
+- runtime `M/C/D` diagnostics
 
-Diagnostics are intended to mean:
+But Fix7 also added a new M0 `HunterTrigger` message handler. Its hardened audit showed `179` shared-core symbols shifted by +4 bytes, so the original Fix7 candidate is archived but must not be hardware-tested.
+
+Archived Fix7 result:
+`hackrf/build_results/wifi_aim_full_n260808_fix7/`
+
+## Current candidate — Fix7b STATIC PASS
+Fix7b preserves the useful Fix7 M4/pre-trigger changes but removes the new M0 `HunterTrigger` handler. Diagnostic telemetry is transported through the **existing `FSKPacket` path already used by Fix6**, using `WireApReport.flags` bit1 as a diagnostic-only report marker.
+
+This restores the zero-drift property while keeping hardware-readable diagnostics:
 - `M` = last channel acknowledged by M4
-- `C` = capture attempts
-- `D` = successful Wi-Fi PHY decodes
+- `C` = capture attempts during current scan
+- `D` = successful Wi-Fi PHY decodes during current scan
 
-## Final Fix7 CI result — STATIC FAIL, DO NOT HARDWARE TEST
-Workflow:
-`.github/workflows/build_wifi_aim_full_n260808_fix7.yml`
+Fix7b CI:
+- technical PR `#4`
+- workflow run `32671853658`
+- job `97273779780`
+- Actions conclusion: `SUCCESS`
+- artifact ID `9501915159`
+- artifact digest `sha256:68093816916211b88d4fd9ec56ace728ec14c246aca2a89ba820b4f0d491a5d6`
 
-Run:
-`32666957127`
-
-Job:
-`97261737292`
-
-The GitHub Actions job completed all build/audit/publish steps, but **job success is not the same as audit PASS**. The generated `VERIFY.txt` records:
-- size `23508`
-- memory `0x10083FEC`
-- entry `0x10084041`
+Hardened `VERIFY.txt`:
+- size `23396`
+- memory `0x10083FE4`
+- entry `0x10084039`
 - header `3`
 - version `0x86B64C1D`
 - tag `WAIM`
-- M4 offset `7140`
-- shared core symbols `7118`
-- **core symbol drift `179`**
+- M4 offset `7036`
+- shared core symbols `7086`
+- **core symbol drift `0`**
+- drift references `0`
 - patch count `0`
 - same-address core refs `80`
 - ambiguous `0`
@@ -87,47 +85,30 @@ The GitHub Actions job completed all build/audit/publish steps, but **job succes
 - checksum `0x00000000`
 - stock `_Znwj = 0x7ee24`
 - modified `_Znwj = 0x7ee24`
-- PPMA SHA-256 `cb1cab400ea934f3d0bf2d3116d624c3310375a7f7342a2c00b3ec4a4d71248f`
-- **RESULT `FAIL`**
+- no retained `to_string_mac_address` symbol
+- PPMA SHA-256 `730dee07e741cc5a2764dfcf9ffbae52622caf25a75ea6e94a7ffabbf9cb2b49`
+- **RESULT `PASS`**
 
-The first observed shared-core shift is +4 bytes around stock address `0x000A3C68`; 179 later core data/vtable/table symbols are correspondingly shifted.
-
-Complete original CI output is archived at:
-`hackrf/build_results/wifi_aim_full_n260808_fix7/`
-
-Contents include:
-- original Actions artifact ZIP
-- `BUILD.log`
-- `WiFiAIM_n260808_fix7.ppma`
-- `.ppma.b64`
-- `WAIM.bin`
-- `VERIFY.txt`
-- `STATUS.txt`
-- hashes
-
-**Do not copy the Fix7 `.ppma` to the device.**
+The PPMA header/checksum/SHA were also independently rechecked after downloading the artifact and matched the CI report.
 
 ## Exact current engineering frontier
-Preserve the useful Fix7 M4 pre-trigger/init/diagnostic changes while restoring Fix6's exact zero-drift stock-core ABI property.
+**Fix7b is approved for the next hardware test on stock `n_260808`; it is not yet hardware-proven.**
 
-Next work:
-1. identify the first Fix7-added M0 object/data/rodata/message-handler registration that changes the monolithic core layout;
-2. ensure every such Fix7 M0 contribution is isolated into the external-app section rather than stock core sections;
-3. rebuild against exact stock `n_260808` twice as before;
-4. require:
-   - `core_symbol_drift_count=0`
-   - `patch_count=0`
-   - `ambiguous_count=0`
-   - `unresolved_count=0`
-   - checksum `0`
-   - `RESULT=PASS`
-5. only then hardware-test and use `M/C/D` to diagnose SCAN `0 AP`.
+Installation/test rule:
+1. keep stock Mayhem `n_260808`; do not flash firmware;
+2. remove/move Fix6 from `/APPS` to avoid duplicate WiFi AIM entries;
+3. copy only `WiFiAIM_n260808_fix7b.ppma` to `/APPS`;
+4. do not copy `WAIM.bin` separately — it is embedded in the PPMA;
+5. launch RX -> WiFi AIM;
+6. press SCAN; dwell is ~1 s/channel (~13 s total);
+7. record whether `M` follows the channel and the final `Done xAP C# D#` text.
 
-If the future zero-drift candidate launches and shows:
-- `M` follows channel + `C=0`: detector/capture start problem
-- `C>0 D=0`: instrument OFDM LTF/SIGNAL/rate/Viterbi/parser and DSSS sync/SFD/header/parser
-- `D>0` but AP=0: investigate WireApReport / M0 report parser
-- AP>0: continue to SSID/BSSID selection, TARGET, AIM, REF/DELTA REF
+Hardware interpretation:
+- app HardFaults -> capture full register screen; static ABI passed, so this would be a new runtime regression
+- `M` follows channel + `C=0` -> detector/capture start problem
+- `C>0 D=0` -> capture works; next build instruments PHY stages (OFDM LTF/SIGNAL/rate/Viterbi/parser and DSSS sync/SFD/header/parser)
+- `D>0` but AP=0 -> investigate real AP report vs diagnostic-only report parsing
+- AP>0 -> proceed to SSID/BSSID selection, TARGET, AIM, REF/DELTA REF
 
 ## Source layout
 Readable current source:
@@ -163,7 +144,8 @@ Key files:
 | Fix4 | static FAIL | stock-core parity failed |
 | Fix5 | static FAIL | 58 rebases + 1 unresolved formatter import |
 | Fix6 | **static PASS + hardware launch PASS** | zero drift/zero patches; SCAN `0 AP` |
-| Fix7 | **static FAIL** | useful capture diagnostics, but 179 shared-core symbols shifted |
+| Fix7 | **static FAIL** | useful pre-trigger/telemetry, but 179 core symbols shifted |
+| Fix7b | **static PASS; hardware pending** | same useful diagnostics via existing FSKPacket path, zero core drift |
 
 ## Firmware rule
 Do not move to matched custom `w_260822` without explicit user permission.
