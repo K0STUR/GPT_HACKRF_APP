@@ -5,76 +5,92 @@ Updated: 2026-08-24
 Canonical repository: **`K0STUR/GPT_HACKRF_APP`**.
 The old `K0STUR/GPT` repository is reserved for `FORDstecki` only.
 
-## Current device firmware
-- Device Mayhem: stock `n_260808`
-- Upstream tag: `nightly-tag-2026-08-08`
-- Upstream commit: `367eaf54c0f51f62448d9f2d9585fd3629f6b770`
-- Preserve stock firmware unless the user explicitly agrees otherwise.
+## Device target
+- PortaPack Mayhem: stock `n_260808`
+- upstream tag: `nightly-tag-2026-08-08`
+- upstream commit: `367eaf54c0f51f62448d9f2d9585fd3629f6b770`
+- do not flash the matched custom `w_260822` firmware without explicit user permission.
 
-## Proven hardware baseline — Fix6
-Fix6 solved the stock-firmware loader/core-ABI blocker and was tested on real hardware.
+## Hardware-proven baseline — Fix6
+Fix6 solved the stock-loader/core-ABI problem.
 
-Artifact:
-`hackrf/build_results/wifi_aim_full_n260808_fix6/WiFiAIM_n260808_fix6.ppma`
-
-SHA-256:
-`4084904bb1d12229895066f0d1b3424c1dfb5a54fcf40705b6c4cae4f05fe225`
-
-Static audit:
-- workflow run `32631639944` SUCCESS
+Static:
+- run `32631639944`
 - size `22720`
-- core symbol drift `0`
-- ABI rebase patches `0`
+- core drift `0`
+- patches `0`
 - ambiguous `0`
 - unresolved `0`
 - checksum `0`
+- SHA-256 `4084904bb1d12229895066f0d1b3424c1dfb5a54fcf40705b6c4cae4f05fe225`
 - RESULT `PASS`
 
 Real hardware:
-- app opens normally on stock `n_260808`
+- launch PASS on stock `n_260808`
 - no HardFault
-- red RF/RSSI bar responds to antenna
-- SCAN completes but reports `0 AP`
+- RF/RSSI bar reacts to antenna
+- SCAN completes with `0 AP`
 
-Therefore the remaining problem is downstream in M4 capture / Wi-Fi PHY decode / AP-report path, not external-app loading.
+Therefore loader/core ABI and basic RF reception are proven; the remaining issue is in M4 capture / Wi-Fi PHY decode / report flow.
 
-## Fix7 — useful diagnostics, static FAIL
-Fix7 added the right M4-side ideas:
-- 2048 IQ pre-trigger samples using the existing capture buffer
-- safer M4 member order with auto-starting threads last
+## Fix7 — useful source ideas, static FAIL
+Fix7 introduced:
+- 2048-sample IQ pre-trigger history
+- safer M4 initialization order with auto-starting threads last
 - lower detector threshold (~1.25x floor + margin)
 - 1000 ms/channel scan dwell
-- runtime `M/C/D` diagnostics
+- runtime diagnostics `M/C/D`
 
-But Fix7 also added a new M0 `HunterTrigger` message handler. Its hardened audit showed `179` shared-core symbols shifted by +4 bytes, so the original Fix7 candidate is archived but must not be hardware-tested.
+But the added M0 `HunterTrigger` handler shifted 179 shared core symbols. Original Fix7 is archived and must not be hardware-tested.
 
-Archived Fix7 result:
-`hackrf/build_results/wifi_aim_full_n260808_fix7/`
+## Fix7b — zero drift restored
+Fix7b removed the new M0 `HunterTrigger` handler and transported telemetry through the already-existing `FSKPacket` handler. This restored zero core drift.
 
-## Current candidate — Fix7b STATIC PASS
-Fix7b preserves the useful Fix7 M4/pre-trigger changes but removes the new M0 `HunterTrigger` handler. Diagnostic telemetry is transported through the **existing `FSKPacket` path already used by Fix6**, using `WireApReport.flags` bit1 as a diagnostic-only report marker.
-
-This restores the zero-drift property while keeping hardware-readable diagnostics:
-- `M` = last channel acknowledged by M4
-- `C` = capture attempts during current scan
-- `D` = successful Wi-Fi PHY decodes during current scan
-
-Fix7b CI:
-- technical PR `#4`
-- workflow run `32671853658`
+Fix7b static result:
+- run `32671853658`
 - job `97273779780`
-- Actions conclusion: `SUCCESS`
-- artifact ID `9501915159`
-- artifact digest `sha256:68093816916211b88d4fd9ec56ace728ec14c246aca2a89ba820b4f0d491a5d6`
+- RESULT `PASS`
+- core drift `0`
+- patches `0`
+- ambiguous `0`
+- unresolved `0`
+- checksum `0`
 
-Hardened `VERIFY.txt`:
-- size `23396`
-- memory `0x10083FE4`
-- entry `0x10084039`
+Before hardware testing, inspection of upstream Mayhem showed that `FSKRxPacketMessage` contains a pointer to `FskPacketData`. Fix7b used one backing buffer for both AP data and telemetry, so a retune telemetry write could theoretically overwrite an AP payload before M0 consumed it.
+
+## CURRENT CANDIDATE — Fix7c STATIC PASS, READY FOR HARDWARE TEST
+Fix7c keeps the zero-drift M0 design and hardens the M4->M0 IPC path:
+- separate `FskPacketData` backing buffers for real AP reports and diagnostic reports;
+- diagnostic-only marker is **flags bit7 = `0x80`**;
+- failed-capture telemetry is throttled to every 16 capture attempts;
+- exact counters/channel acknowledgement are still sent on every decoder/channel state transition;
+- final SCAN counters are refreshed when decoding is disabled at the end of scan;
+- successful AP reports are still emitted immediately.
+
+This follows the same pointer-based `FSKRxPacketMessage` design used by upstream Mayhem's own FSK receiver, while preventing telemetry from overwriting AP data.
+
+### Fix7c CI
+Technical PR: `#5`
+
+Run:
+`32673931447`
+
+Job:
+`97278879220`
+
+Artifact ID:
+`9502420139`
+
+The workflow artifact is still named `wifi-aim-full-n260808-fix7b` because Fix7c reused the already-hardened Fix7b audit harness; the compiled source is Fix7c from main commit `f4eec354a321b699d2ff1bf8254ddca6ab80bf7a`.
+
+### Hardened Fix7c verification
+- size `23452`
+- memory `0x10083FF4`
+- entry `0x10084049`
 - header `3`
 - version `0x86B64C1D`
 - tag `WAIM`
-- M4 offset `7036`
+- M4 offset `7076`
 - shared core symbols `7086`
 - **core symbol drift `0`**
 - drift references `0`
@@ -85,30 +101,40 @@ Hardened `VERIFY.txt`:
 - checksum `0x00000000`
 - stock `_Znwj = 0x7ee24`
 - modified `_Znwj = 0x7ee24`
-- no retained `to_string_mac_address` symbol
-- PPMA SHA-256 `730dee07e741cc5a2764dfcf9ffbae52622caf25a75ea6e94a7ffabbf9cb2b49`
+- no retained `to_string_mac_address` import
+- PPMA SHA-256 `f511aeae4abf4806e74d21c25fd744cfd38e3c0e4fb8c813fdc263db229c6b74`
 - **RESULT `PASS`**
 
-The PPMA header/checksum/SHA were also independently rechecked after downloading the artifact and matched the CI report.
+The PPMA header, word checksum and SHA-256 were independently recalculated after downloading the artifact and matched CI.
 
-## Exact current engineering frontier
-**Fix7b is approved for the next hardware test on stock `n_260808`; it is not yet hardware-proven.**
+Archived text evidence:
+`hackrf/build_results/wifi_aim_full_n260808_fix7c/`
 
-Installation/test rule:
-1. keep stock Mayhem `n_260808`; do not flash firmware;
-2. remove/move Fix6 from `/APPS` to avoid duplicate WiFi AIM entries;
-3. copy only `WiFiAIM_n260808_fix7b.ppma` to `/APPS`;
+## Exact next action — REAL HARDWARE TEST
+Do not do more ABI work before this test.
+
+1. keep stock Mayhem `n_260808`;
+2. remove/move old WiFi AIM Fix6/Fix7 from SD `/APPS` so only one WiFi AIM entry exists;
+3. copy only `WiFiAIM_n260808_fix7c.ppma` to `/APPS`;
 4. do not copy `WAIM.bin` separately — it is embedded in the PPMA;
-5. launch RX -> WiFi AIM;
-6. press SCAN; dwell is ~1 s/channel (~13 s total);
-7. record whether `M` follows the channel and the final `Done xAP C# D#` text.
+5. launch `RX -> WiFi AIM`;
+6. press `SCAN`; scan takes about 13 seconds (1 s/channel for channels 1-13);
+7. observe the status during scan: `S x/13 C# D# M#`;
+8. record the final text: `Done xAP C# D#`;
+9. if APs appear, test AP navigation, SSID/BSSID display and TARGET.
 
-Hardware interpretation:
-- app HardFaults -> capture full register screen; static ABI passed, so this would be a new runtime regression
-- `M` follows channel + `C=0` -> detector/capture start problem
-- `C>0 D=0` -> capture works; next build instruments PHY stages (OFDM LTF/SIGNAL/rate/Viterbi/parser and DSSS sync/SFD/header/parser)
-- `D>0` but AP=0 -> investigate real AP report vs diagnostic-only report parsing
-- AP>0 -> proceed to SSID/BSSID selection, TARGET, AIM, REF/DELTA REF
+### Diagnostic meanings
+- `M` = last channel acknowledged by M4. It should follow the current scan channel.
+- `C` = capture attempts during the current scan.
+- `D` = successful Wi-Fi PHY decodes during the current scan.
+
+Interpretation:
+- HardFault -> photograph full register screen; unexpected runtime regression despite zero-drift audit.
+- `M` does not follow channel -> M0->M4 control or M4->M0 telemetry problem.
+- `M` works, `C=0` -> capture detector/threshold is not triggering.
+- `C>0, D=0` -> RF capture is working; next build must instrument PHY stages rather than loader/ABI.
+- `D>0, AP=0` -> investigate decoded report / WireApReport / M0 parser path.
+- `AP>0` -> proceed directly to SSID/BSSID selection, TARGET, AIM, REF/DELTA REF.
 
 ## Source layout
 Readable current source:
@@ -123,29 +149,7 @@ Key files:
 - `firmware/common/wifi_aim/wifi_aim_phy.hpp`
 - `firmware/common/wifi_aim_wire.hpp`
 
-## Implemented functionality
-- channels 1-13 scan framework
-- Beacon + Probe Response parser
-- SSID / hidden SSID
-- BSSID display and exact target selection
-- LIVE / AVG / PEAK / REF / DELTA REF framework
-- decoder OFF/AUTO/ON
-- DSSS 1 Mb/s
-- OFDM 6/12/24 Mb/s
-- M4 `WAIM` processor + M0 UI
-- synthetic/host/sanitizer/fuzz work
+## End goal
+`SCAN -> choose SSID/BSSID -> TARGET -> AIM -> REF -> DELTA REF`
 
-## Historical build chain
-| Build | Result | Meaning |
-|---|---|---|
-| RF probe n_260808 | hardware PASS | RF path proven |
-| original full app | FAIL | loader rejected image |
-| Fix1 | hardware FAIL | immediate HardFault |
-| Fix4 | static FAIL | stock-core parity failed |
-| Fix5 | static FAIL | 58 rebases + 1 unresolved formatter import |
-| Fix6 | **static PASS + hardware launch PASS** | zero drift/zero patches; SCAN `0 AP` |
-| Fix7 | **static FAIL** | useful pre-trigger/telemetry, but 179 core symbols shifted |
-| Fix7b | **static PASS; hardware pending** | same useful diagnostics via existing FSKPacket path, zero core drift |
-
-## Firmware rule
-Do not move to matched custom `w_260822` without explicit user permission.
+Passive receive only. Channels 1-13. Beacon + Probe Response parsing. Hidden SSID support. Exact BSSID targeting. Relative signal is sufficient; do not claim calibrated dBm.
