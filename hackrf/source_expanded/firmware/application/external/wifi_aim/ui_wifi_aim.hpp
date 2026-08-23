@@ -50,8 +50,8 @@ class WifiAimView final : public View {
     uint32_t timer_ms_{0};
     uint32_t auto_phase_ms_{0};
 
-    // Fix7b receives M4 diagnostics through the already-existing FSKPacket
-    // handler, avoiding a new HunterTrigger registration in the stock M0 link.
+    // Fix7b/Fix7c receive M4 diagnostics through the already-existing
+    // FSKPacket handler, avoiding a new HunterTrigger registration in M0.
     uint16_t diag_capture_total_{0};
     uint16_t diag_decode_total_{0};
     uint16_t scan_capture_base_{0};
@@ -102,6 +102,7 @@ class WifiAimView final : public View {
     void on_frame_sync();
     void on_packet(const FSKRxPacketMessage* msg);
     void update_scan_status();
+    void update_done_status();
     uint16_t scan_capture_delta() const;
     uint16_t scan_decode_delta() const;
     void update_ap_display();
