@@ -42,21 +42,25 @@ void WifiAimProcessor::copy_into_capture(const buffer_c8_t& buffer) {
     capture_count_ += ncopy;
 }
 
-void WifiAimProcessor::send_diag_stats() {
-    // ABI-safe diagnostic transport: HunterTrigger already exists in n_260808.
-    // 0xCccccddd: C = stats marker, c = capture attempts, d = successful decodes.
-    HunterTriggerMessage msg{};
-    msg.energy = 0xC0000000u |
-                 ((static_cast<uint32_t>(capture_attempts_) & 0x3FFFu) << 14) |
-                 (static_cast<uint32_t>(decode_successes_) & 0x3FFFu);
+void WifiAimProcessor::send_wire_report(const wifiaim::WireApReport& wire) {
+    std::memset(packet_.data, 0, sizeof(packet_.data));
+    std::memcpy(packet_.data, &wire, sizeof(wire));
+    packet_.dataLen = sizeof(wire);
+    packet_.max_dB = wire.packet_db_x10 / 10;
+    packet_.power = static_cast<float>(wire.packet_db_x10) / 10.0f;
+    FSKRxPacketMessage msg{&packet_};
     shared_memory.application_queue.push(msg);
 }
 
-void WifiAimProcessor::send_diag_ack() {
-    // 0xF00000cc confirms M4 received HunterConfig and reports tuned channel.
-    HunterTriggerMessage msg{};
-    msg.energy = 0xF0000000u | static_cast<uint32_t>(tuned_channel_);
-    shared_memory.application_queue.push(msg);
+void WifiAimProcessor::send_diag_state() {
+    // Fix7b deliberately uses the existing FSKPacket IPC path already used by
+    // Fix6. bit7 means this is telemetry only and must not become an AP entry.
+    wifiaim::WireApReport wire{};
+    wire.channel = tuned_channel_;
+    wire.flags = 0x80u;
+    wire.capture_total = static_cast<uint16_t>(capture_attempts_ & 0x3FFFu);
+    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);
+    send_wire_report(wire);
 }
 
 void WifiAimProcessor::reset_detector() {
@@ -67,28 +71,31 @@ void WifiAimProcessor::reset_detector() {
 
 void WifiAimProcessor::finish_capture() {
     wifiaim::M4ApReport ap{};
-    if (decoder_.decode(capture_.data(), capture_count_, ap)) {
-        ++decode_successes_;
+    const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap);
+    if (decoded) ++decode_successes_;
+
+    // Send exactly one FSK IPC message for this completed capture. This avoids
+    // overwriting packet_ with a second diagnostic message before M0 consumes
+    // a successful AP report.
+    wifiaim::WireApReport wire{};
+    wire.channel = tuned_channel_;
+    wire.capture_total = static_cast<uint16_t>(capture_attempts_ & 0x3FFFu);
+    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);
+
+    if (decoded) {
         if (ap.channel == 0) ap.channel = tuned_channel_;
-        wifiaim::WireApReport wire{};
         wire.channel = ap.channel;
         wire.packet_db_x10 = ap.packet_db_x10;
         std::memcpy(wire.bssid, ap.bssid, 6);
         wire.ssid_len = static_cast<uint8_t>(std::min<unsigned>(static_cast<unsigned>(ap.ssid_len), 32U));
         if (wire.ssid_len) std::memcpy(wire.ssid, ap.ssid, wire.ssid_len);
-        wire.flags = ap.hidden ? 0x01 : 0x00;
+        wire.flags = ap.hidden ? 0x01u : 0x00u;
         wire.phy_rate_mbps = ap.phy_rate_mbps;
-
-        std::memset(packet_.data, 0, sizeof(packet_.data));
-        std::memcpy(packet_.data, &wire, sizeof(wire));
-        packet_.dataLen = sizeof(wire);
-        packet_.max_dB = ap.packet_db_x10 / 10;
-        packet_.power = static_cast<float>(ap.packet_db_x10) / 10.0f;
-        FSKRxPacketMessage msg{&packet_};
-        shared_memory.application_queue.push(msg);
+    } else {
+        wire.flags = 0x80u;
     }
+    send_wire_report(wire);
 
-    send_diag_stats();
     capture_count_ = 0;
     pretrigger_count_ = 0;
     cooldown_buffers_ = 2;
@@ -117,14 +124,13 @@ void WifiAimProcessor::execute(const buffer_c8_t& buffer) {
     }
 
     if (state_ == State::Waiting) {
-        // Follow the floor slowly. Fix7 deliberately uses a less conservative
-        // trigger than Fix6 and prepends the previous DMA block when a burst is
-        // detected, so the 802.11 preamble/LTF is not lost at the block edge.
+        // Follow the floor slowly. Keep the previous DMA block so the decoder
+        // sees the Wi-Fi preamble/LTF even if the trigger occurs one block late.
         if (p < noise_power_ * 2u) noise_power_ = (noise_power_ * 31u + p) / 32u;
         const uint32_t threshold = noise_power_ + (noise_power_ >> 2) + 32u;  // ~1.25x + margin
         if (p >= threshold) {
             ++capture_attempts_;
-            capture_count_ = pretrigger_count_; // previous block already lives at capture_[0..]
+            capture_count_ = pretrigger_count_;
             copy_into_capture(buffer);
             pretrigger_count_ = 0;
             state_ = State::Capturing;
@@ -143,7 +149,7 @@ void WifiAimProcessor::execute(const buffer_c8_t& buffer) {
 void WifiAimProcessor::on_message(const Message* const message) {
     switch (message->id) {
         case Message::ID::HunterConfig: {
-            // Reuse an existing ABI-safe message instead of changing message.hpp.
+            // Reuse the stock HunterConfig ABI for M0 -> M4 control only.
             const auto& m = *reinterpret_cast<const HunterConfigMessage*>(message);
             if (m.energy_threshold >= 1 && m.energy_threshold <= 13)
                 tuned_channel_ = static_cast<uint8_t>(m.energy_threshold);
@@ -153,8 +159,7 @@ void WifiAimProcessor::on_message(const Message* const message) {
             warmup_buffers_ = 8;
             cooldown_buffers_ = 0;
             state_ = enabled_ ? State::Warmup : State::Waiting;
-            send_diag_ack();
-            send_diag_stats();
+            send_diag_state();
             break;
         }
         default:
