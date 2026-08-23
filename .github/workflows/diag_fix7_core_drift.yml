@@ -1,0 +1,231 @@
+name: Diagnose WiFi AIM Fix7 core drift
+
+on:
+  push:
+    paths:
+      - '.github/workflows/diag_fix7_core_drift.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Fix7 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf wifi_src
+          mkdir -p wifi_src/firmware/application/external wifi_src/firmware/baseband wifi_src/firmware/common
+          cp -a hackrf/source_expanded/firmware/application/external/wifi_aim wifi_src/firmware/application/external/
+          cp hackrf/source_expanded/firmware/baseband/proc_wifi_aim.* wifi_src/firmware/baseband/
+          cp hackrf/source_expanded/firmware/common/wifi_aim_wire.hpp wifi_src/firmware/common/
+          cp -a hackrf/source_expanded/firmware/common/wifi_aim wifi_src/firmware/common/
+          python3 - <<'PY'
+          from pathlib import Path
+          ui=Path('wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp')
+          s=ui.read_text()
+          anchor='namespace ui::external_app::wifi_aim {'
+          helper=r'''
+
+          static std::string wifi_aim_local_mac_string(const uint8_t* mac, uint8_t length, bool noColon) {
+              if (!mac || length == 0) return {};
+              if (length > 6) length = 6;
+              constexpr char digits[] = "0123456789ABCDEF";
+              char out[18]{};
+              size_t pos = 0;
+              for (uint8_t i = 0; i < length; ++i) {
+                  if (i && !noColon) out[pos++] = ':';
+                  out[pos++] = digits[(mac[i] >> 4) & 0x0F];
+                  out[pos++] = digits[mac[i] & 0x0F];
+              }
+              out[pos] = '\0';
+              return std::string(out);
+          }
+          '''
+          assert anchor in s
+          s=s.replace(anchor,anchor+helper,1)
+          assert 'to_string_mac_address(' in s
+          s=s.replace('to_string_mac_address(','wifi_aim_local_mac_string(')
+          ui.write_text(s)
+          PY
+
+      - name: Checkout exact Mayhem twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem_stock
+          (cd mayhem_stock && git checkout nightly-tag-2026-08-08 && git submodule update --init --recursive && test "$(git rev-parse HEAD)" = "367eaf54c0f51f62448d9f2d9585fd3629f6b770")
+          git clone --recursive https://github.com/portapack-mayhem/mayhem-firmware.git mayhem_mod
+          (cd mayhem_mod && git checkout nightly-tag-2026-08-08 && git submodule update --init --recursive && test "$(git rev-parse HEAD)" = "367eaf54c0f51f62448d9f2d9585fd3629f6b770")
+
+      - name: Build official toolchain
+        run: |
+          set -euo pipefail
+          cd mayhem_stock
+          docker build -t portapack-dev -f dockerfile-nogit .
+
+      - name: Build untouched stock and capture ELF metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd mayhem_stock
+          mkdir -p build
+          docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc "arm-none-eabi-nm -n -S /havoc/build/firmware/application/application.elf" > ../stock_nm_size.txt
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc "arm-none-eabi-objdump -h /havoc/build/firmware/application/application.elf" > ../stock_sections.txt
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc "arm-none-eabi-size -A /havoc/build/firmware/application/application.elf" > ../stock_sizeA.txt
+          cd ..
+
+      - name: Integrate Fix7 exactly like current builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a wifi_src/firmware/application/external/wifi_aim mayhem_mod/firmware/application/external/
+          cp wifi_src/firmware/baseband/proc_wifi_aim.* mayhem_mod/firmware/baseband/
+          cp wifi_src/firmware/common/wifi_aim_wire.hpp mayhem_mod/firmware/common/
+          cp -a wifi_src/firmware/common/wifi_aim mayhem_mod/firmware/common/
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('mayhem_mod')
+          p=root/'firmware/application/external/external.cmake'; s=p.read_text()
+          a='  external/signal_hunter/ui_signal_hunter.cpp'
+          if 'external/wifi_aim/main.cpp' not in s:
+              s=s.replace(a,a+'\n\n  #wifi_aim\n  external/wifi_aim/main.cpp\n  external/wifi_aim/ui_wifi_aim.cpp',1)
+          la='  signal_hunter\n'
+          if '\twifi_aim\n' not in s and '  wifi_aim\n' not in s:
+              s=s.replace(la,la+'\twifi_aim\n',1)
+          p.write_text(s)
+
+          p=root/'firmware/application/external/external.ld'; s=p.read_text()
+          ma='    ram_external_app_tetra_rx              (rwx) : org = 0xAE0C0000, len = 32k'
+          if 'ram_external_app_wifi_aim' not in s:
+              s=s.replace(ma,ma+'\n    ram_external_app_wifi_aim              (rwx) : org = 0xAE0D0000, len = 32k',1)
+          sa='} > ram_external_app_signal_hunter'
+          if '.external_app_wifi_aim' not in s:
+              block='''\n\n    .external_app_wifi_aim : ALIGN(4) SUBALIGN(4)\n    {\n        KEEP(*(.external_app.app_wifi_aim.application_information));\n        */external/wifi_aim/*(.text* .rodata* .data* .gnu.linkonce* .ARM.extab* .ARM.exidx*);\n        . = ALIGN(4);\n    } > ram_external_app_wifi_aim'''
+              s=s.replace(sa,sa+block,1)
+          p.write_text(s)
+
+          p=root/'firmware/tools/external_app_info.py'; s=p.read_text().replace('external_apps_address_end = 0xAE0B0000','external_apps_address_end = 0xAE0E0000'); p.write_text(s)
+          p=root/'firmware/baseband/CMakeLists.txt'; s=p.read_text(); a='DeclareTargets(HUNT signal_hunter)'
+          if 'DeclareTargets(WAIM wifi_aim)' not in s:
+              s=s.replace(a,a+'''\n\n### WiFi AIM\nset(MODE_FLAGS "-Os")\nset(MODE_CPPSRC\n    proc_wifi_aim.cpp\n    ${COMMON}/wifi_aim/wifi_aim_phy.cpp\n)\nDeclareTargets(WAIM wifi_aim)\nset(MODE_FLAGS "-O3")''',1)
+          p.write_text(s)
+          PY
+
+      - name: Build Fix7 and capture ELF/object metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd mayhem_mod
+          mkdir -p build
+          docker run -e VERSION_STRING=n_260808 -i -v "$PWD":/havoc portapack-dev
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc "arm-none-eabi-nm -n -S /havoc/build/firmware/application/application.elf" > ../mod_nm_size.txt
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc "arm-none-eabi-objdump -h /havoc/build/firmware/application/application.elf" > ../mod_sections.txt
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc "arm-none-eabi-size -A /havoc/build/firmware/application/application.elf" > ../mod_sizeA.txt
+          docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc "find /havoc/build/firmware/application -type f \( -name '*wifi_aim*.obj' -o -path '*wifi_aim*/*.obj' \) -print -exec arm-none-eabi-objdump -h {} \;" > ../wifi_object_sections.txt
+          cd ..
+
+      - name: Produce core drift diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=hackrf/diagnostics/fix7_core_drift
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          cp stock_nm_size.txt mod_nm_size.txt stock_sections.txt mod_sections.txt stock_sizeA.txt mod_sizeA.txt wifi_object_sections.txt "$OUT"/
+          cp mayhem_mod/build/firmware/application/wifi_aim.ppma /tmp/fix7.ppma
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct, re, collections
+
+          OUT=Path('hackrf/diagnostics/fix7_core_drift')
+          def read_nm(path):
+              by={}
+              rows=[]
+              for ln in Path(path).read_text(errors='ignore').splitlines():
+                  p=ln.split(None,3)
+                  if len(p)!=4: continue
+                  try: a=int(p[0],16); sz=int(p[1],16)
+                  except: continue
+                  t=p[2]; n=p[3]
+                  rows.append((a,sz,t,n)); by.setdefault(n,[]).append((a,sz,t))
+              return by,rows
+          def core(a): return (0<=a<0x00100000 or 0x10000000<=a<0x10080000 or 0x20000000<=a<0x20040000)
+          sn,srows=read_nm('stock_nm_size.txt'); mn,mrows=read_nm('mod_nm_size.txt')
+          drift=[]
+          for n,sv in sn.items():
+              mv=mn.get(n)
+              if len(sv)==1 and mv and len(mv)==1 and core(sv[0][0]) and sv[0][0]!=mv[0][0]:
+                  drift.append((n,sv[0],mv[0]))
+          mod_only=[]
+          for n,mv in mn.items():
+              if n not in sn and len(mv)==1 and core(mv[0][0]): mod_only.append((n,mv[0]))
+          stock_only=[]
+          for n,sv in sn.items():
+              if n not in mn and len(sv)==1 and core(sv[0][0]): stock_only.append((n,sv[0]))
+          drift.sort(key=lambda x:x[1][0]); mod_only.sort(key=lambda x:x[1][0]); stock_only.sort(key=lambda x:x[1][0])
+
+          src=Path('/tmp/fix7.ppma').read_bytes(); m4off=struct.unpack_from('<I',src,80)[0]
+          drift_mod_addr={x[2][0]:x for x in drift}
+          refs=[]
+          for off in range(0,m4off-(m4off%4),4):
+              v=struct.unpack_from('<I',src,off)[0]&~1
+              if v in drift_mod_addr: refs.append((off,struct.unpack_from('<I',src,off)[0],drift_mod_addr[v]))
+
+          def parse_sections(path):
+              out={}
+              rx=re.compile(r'^\s*\d+\s+(\S+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)')
+              for ln in Path(path).read_text(errors='ignore').splitlines():
+                  m=rx.match(ln)
+                  if m: out[m.group(1)]=(int(m.group(2),16),int(m.group(3),16),int(m.group(4),16))
+              return out
+          ss=parse_sections('stock_sections.txt'); ms=parse_sections('mod_sections.txt')
+          secdiff=[]
+          for n in sorted(set(ss)|set(ms)):
+              a=ss.get(n); b=ms.get(n)
+              if a!=b: secdiff.append((n,a,b))
+
+          types=collections.Counter((x[1][2],x[2][2]) for x in drift)
+          lines=[]
+          lines += [f'drift_count={len(drift)}',f'referenced_drift_word_count={len(refs)}',f'mod_only_core_count={len(mod_only)}',f'stock_only_core_count={len(stock_only)}']
+          if drift:
+              first=drift[0]; lines.append(f'first_drift={first!r}'); first_addr=first[1][0]
+              lines.append('near_first_drift_mod_only:')
+              for x in mod_only:
+                  if first_addr-128 <= x[1][0] <= first_addr+128: lines.append('  '+repr(x))
+          lines.append('drift_type_pairs='+repr(types))
+          lines.append('section_differences:')
+          for x in secdiff: lines.append('  '+repr(x))
+          lines.append('mod_only_core_first_80:')
+          for x in mod_only[:80]: lines.append('  '+repr(x))
+          lines.append('stock_only_core_first_80:')
+          for x in stock_only[:80]: lines.append('  '+repr(x))
+          lines.append('referenced_drift_words:')
+          for x in refs[:100]: lines.append('  '+repr(x))
+          lines.append('drift_first_220:')
+          for x in drift[:220]: lines.append('  '+repr(x))
+          (OUT/'DIAGNOSIS.txt').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines[:220]))
+          PY
+
+      - name: Publish diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'wifi-aim-diagnostics'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -f hackrf/diagnostics/fix7_core_drift
+          git commit -m 'Publish Fix7 core drift diagnosis' || true
+          git pull --rebase origin main || true
+          git push origin HEAD:main
+
+      - name: Upload diagnosis
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix7-core-drift-diagnosis
+          path: hackrf/diagnostics/fix7_core_drift/*
