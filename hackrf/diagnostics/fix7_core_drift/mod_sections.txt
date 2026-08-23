@@ -1,0 +1,227 @@
+
+/havoc/build/firmware/application/application.elf:     file format elf32-littlearm
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .external_app_afsk_rx 00000ec8  adb10000  adb10000  000d0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  1 .external_app_calculator 000027b8  adb20000  adb20000  000e0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  2 .external_app_font_viewer 00000770  adb30000  adb30000  000f0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  3 .external_app_blespam 000024f0  adb40000  adb40000  00100000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  4 .external_app_analogtv 000016fc  adb50000  adb50000  00110000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  5 .external_app_nrf_rx 000009bc  adb60000  adb60000  00120000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  6 .external_app_coasterp 000009b0  adb70000  adb70000  00130000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  7 .external_app_lge 00001848  adb80000  adb80000  00140000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  8 .external_app_lcr 00001e78  adb90000  adb90000  00150000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  9 .external_app_jammer 000024c0  adba0000  adba0000  00160000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 10 .external_app_gpssim 00001034  adbb0000  adbb0000  00170000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 11 .external_app_spainter 00002040  adbc0000  adbc0000  00180000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 12 .external_app_keyfob 00000de4  adbd0000  adbd0000  00190000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 13 .external_app_tetris 000017a0  adbe0000  adbe0000  001a0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 14 .external_app_extsensors 00000bbc  adbf0000  adbf0000  001b0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 15 .external_app_foxhunt_rx 00000c34  adc00000  adc00000  001c0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 16 .external_app_audio_test 00000ab4  adc10000  adc10000  001d0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 17 .external_app_wardrivemap 00001050  adc20000  adc20000  001e0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 18 .external_app_tpmsrx 00002644  adc30000  adc30000  001f0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 19 .external_app_tpmstx 00002608  adfb0000  adfb0000  00560000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 20 .external_app_protoview 00001200  adc40000  adc40000  00200000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 21 .external_app_adsbtx 00001a40  adc50000  adc50000  00210000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 22 .external_app_sstvtx 00001240  adc70000  adc70000  00220000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 23 .external_app_random_password 000029e4  adc80000  adc80000  00230000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 24 .external_app_acars_rx 00001030  adc90000  adc90000  00240000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 25 .external_app_shoppingcart_lock 00001688  adca0000  adca0000  00250000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 26 .external_app_cvs_spam 000016e0  adcb0000  adcb0000  00260000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 27 .external_app_ookbrute 000011fc  adcc0000  adcc0000  00270000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 28 .external_app_ook_editor 0000274c  adce0000  adce0000  00290000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 29 .external_app_flippertx 00001184  adcd0000  adcd0000  00280000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 30 .external_app_remote 00003340  adcf0000  adcf0000  002a0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 31 .external_app_mcu_temperature 000009c0  add00000  add00000  002b0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 32 .external_app_fmradio 000025b0  add10000  add10000  002c0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 33 .external_app_tuner 0000143c  add20000  add20000  002d0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 34 .external_app_metronome 00001290  add30000  add30000  002e0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 35 .external_app_app_manager 00001528  add40000  add40000  002f0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 36 .external_app_hopper 000022a8  add50000  add50000  00300000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 37 .external_app_antenna_length 000014b4  add60000  add60000  00310000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 38 .external_app_view_wav 00001f84  add70000  add70000  00320000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 39 .external_app_sd_wipe 000005ac  add80000  add80000  00330000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 40 .external_app_playlist_editor 000020d4  add90000  add90000  00340000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 41 .external_app_snake 00000c4c  adda0000  adda0000  00350000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 42 .external_app_stopwatch 00000f30  addb0000  addb0000  00360000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 43 .external_app_wefax_rx 00001198  addc0000  addc0000  00370000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 44 .external_app_noaaapt_rx 00001004  ade30000  ade30000  003e0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 45 .external_app_vor_rx 00001964  ae090000  ae090000  00640000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 46 .external_app_vor_tx 00000da0  ae0a0000  ae0a0000  00650000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 47 .external_app_breakout 00001c1c  addd0000  addd0000  00380000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 48 .external_app_doom 00004528  adde0000  adde0000  00390000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 49 .external_app_debug_pmem 00002b4c  addf0000  addf0000  003a0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 50 .external_app_scanner 00003230  ade00000  ade00000  003b0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 51 .external_app_level 00001e70  ade10000  ade10000  003c0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 52 .external_app_gfxeq 0000134c  ade20000  ade20000  003d0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 53 .external_app_waterfall_designer 00002ad0  adf60000  adf60000  00510000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 54 .external_app_detector_rx 00001a98  ade40000  ade40000  003f0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 55 .external_app_dinogame 00005f84  ade50000  ade50000  00400000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 56 .external_app_spaceinv 000025c4  ade60000  ade60000  00410000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 57 .external_app_blackjack 00002910  ade70000  ade70000  00420000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 58 .external_app_battleship 000035d4  ade80000  ade80000  00430000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 59 .external_app_ert 00000a80  ade90000  ade90000  00440000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 60 .external_app_epirb_rx 00003b54  adea0000  adea0000  00450000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 61 .external_app_soundboard 00001904  adeb0000  adeb0000  00460000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 62 .external_app_game2048 00000d8c  adec0000  adec0000  00470000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 63 .external_app_bht_tx 00001b24  aded0000  aded0000  00480000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 64 .external_app_morse_practice 00001ca8  adee0000  adee0000  00490000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 65 .external_app_adult_toys_controller 00002144  adef0000  adef0000  004a0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 66 .external_app_flex_rx 00001628  adf00000  adf00000  004b0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 67 .external_app_sstvrx 00001960  adf10000  adf10000  004c0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 68 .external_app_subcarrx 000025a0  adf20000  adf20000  004d0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 69 .external_app_siggen 000010ac  adf30000  adf30000  004e0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 70 .external_app_sdusb 000005c8  adf40000  adf40000  004f0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 71 .external_app_morse_radio 00002ba0  adf50000  adf50000  00500000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 72 .external_app_morseradiotx 00003578  adf70000  adf70000  00520000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 73 .external_app_keeloqtx 000018f8  adf80000  adf80000  00530000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 74 .external_app_rtty_rx 00000a54  adf90000  adf90000  00540000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 75 .external_app_rtty_tx 0000138c  adfa0000  adfa0000  00550000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 76 .external_app_pocsag_tx 0000136c  adfc0000  adfc0000  00570000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 77 .external_app_time_sink 00001528  adfd0000  adfd0000  00580000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 78 .external_app_same_tx 00000fd8  adfe0000  adfe0000  00590000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 79 .external_app_kiss_tnc 00000fdc  adff0000  adff0000  005a0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 80 .external_app_mdc_tx 0000107c  ae000000  ae000000  005b0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 81 .external_app_epirb_tx 0000481c  ae010000  ae010000  005c0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 82 .external_app_fpv_detect 00001bd4  ae020000  ae020000  005d0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 83 .external_app_p25_tx 00000fa0  ae030000  ae030000  005e0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 84 .external_app_two_tone_pager 000025fc  ae040000  ae040000  005f0000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 85 .external_app_two_tone_rx 00002564  ae050000  ae050000  00600000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 86 .external_app_flex_tx 000038b8  ae060000  ae060000  00610000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 87 .external_app_hard_reset 00000f68  ae070000  ae070000  00620000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 88 .external_app_secplustx 00001b18  ae080000  ae080000  00630000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 89 .external_app_signal_hunter 00002188  ae0b0000  ae0b0000  00660000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 90 .external_app_wifi_aim 00001be4  ae0d0000  ae0d0000  00680000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 91 .external_app_tetra_rx 00001a0c  ae0c0000  ae0c0000  00670000  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 92 startup       00000430  00000000  00000000  00010000  2**4
+                  CONTENTS, ALLOC, LOAD, DATA
+ 93 constructors  00000014  00000430  00000430  00010430  2**2
+                  CONTENTS, ALLOC, LOAD, DATA
+ 94 .text         000ab80e  00000448  00000448  00010448  2**3
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+ 95 .ARM.exidx    00000008  000abc58  000abc58  000bbc58  2**2
+                  CONTENTS, ALLOC, LOAD, READONLY, DATA
+ 96 .textalign    00000000  000abc60  000abc60  00681be4  2**0
+                  CONTENTS
+ 97 .stacks       00001400  20000000  20000000  000d0000  2**0
+                  ALLOC
+ 98 .data         000009f0  20001400  000abc60  000c1400  2**3
+                  CONTENTS, ALLOC, LOAD, DATA
+ 99 .bss          0000335c  20001df0  000ac650  000c1df0  2**11
+                  ALLOC
+100 .debug_info   04c35270  00000000  00000000  00681be4  2**0
+                  CONTENTS, READONLY, DEBUGGING
+101 .debug_abbrev 001f9ba0  00000000  00000000  052b6e54  2**0
+                  CONTENTS, READONLY, DEBUGGING
+102 .debug_loc    0051a004  00000000  00000000  054b09f4  2**0
+                  CONTENTS, READONLY, DEBUGGING
+103 .debug_aranges 00015f40  00000000  00000000  059ca9f8  2**0
+                  CONTENTS, READONLY, DEBUGGING
+104 .debug_ranges 00104f98  00000000  00000000  059e0938  2**0
+                  CONTENTS, READONLY, DEBUGGING
+105 .debug_line   003c72e0  00000000  00000000  05ae58d0  2**0
+                  CONTENTS, READONLY, DEBUGGING
+106 .debug_str    004fbbb1  00000000  00000000  05eacbb0  2**0
+                  CONTENTS, READONLY, DEBUGGING
+107 .comment      00000079  00000000  00000000  063a8761  2**0
+                  CONTENTS, READONLY
+108 .ARM.attributes 0000002a  00000000  00000000  063a87da  2**0
+                  CONTENTS, READONLY
+109 .debug_frame  00050434  00000000  00000000  063a8804  2**2
+                  CONTENTS, READONLY, DEBUGGING
+110 .stabstr      00000181  00000000  00000000  063f8c38  2**0
+                  CONTENTS, READONLY, DEBUGGING

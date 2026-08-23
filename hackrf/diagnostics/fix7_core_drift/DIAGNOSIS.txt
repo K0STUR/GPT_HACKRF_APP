@@ -1,0 +1,19 @@
+drift_count=0
+referenced_drift_word_count=0
+mod_only_core_count=0
+stock_only_core_count=0
+drift_type_pairs=Counter()
+section_differences:
+  ('.debug_abbrev', (2059116, 0, 0), (2071456, 0, 0))
+  ('.debug_aranges', (89344, 0, 0), (89920, 0, 0))
+  ('.debug_frame', (327124, 0, 0), (328756, 0, 0))
+  ('.debug_info', (79448385, 0, 0), (79909488, 0, 0))
+  ('.debug_line', (3937835, 0, 0), (3961568, 0, 0))
+  ('.debug_loc', (5317455, 0, 0), (5349380, 0, 0))
+  ('.debug_ranges', (1064416, 0, 0), (1068952, 0, 0))
+  ('.debug_str', (5209717, 0, 0), (5225393, 0, 0))
+  ('.external_app_wifi_aim', None, (7140, 2920087552, 2920087552))
+mod_only_core_first_80:
+stock_only_core_first_80:
+referenced_drift_words:
+drift_first_220:
