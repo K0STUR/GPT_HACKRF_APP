@@ -1,73 +1,82 @@
 # Prompt for a new ChatGPT conversation
 
-Continue my HackRF One + PortaPack Mayhem WiFi AIM project from GitHub repository `K0STUR/GPT`, folder `hackrf/`.
+Continue my HackRF One + PortaPack Mayhem WiFi AIM project from GitHub repository `K0STUR/GPT_HACKRF_APP`, folder `hackrf/`.
 
 First read, in this exact order:
 1. `hackrf/README.md`
-2. `hackrf/FIX6_STATIC_PASS_AND_HARDWARE_TEST.md`
-3. `hackrf/HANDOVER_MASTER.md`
-4. `hackrf/PROJECT_STATUS.md`
-5. `hackrf/TEST_LOG.md`
-6. `hackrf/WIFI_AIM_SPEC.md`
-7. inspect `hackrf/build_results/wifi_aim_full_n260808_fix6/`
+2. `hackrf/PROJECT_STATUS.md`
+3. `hackrf/TEST_LOG.md`
+4. `hackrf/HANDOVER_MASTER.md`
+5. `hackrf/WIFI_AIM_SPEC.md`
+6. `hackrf/FIX6_STATIC_PASS_AND_HARDWARE_TEST.md`
+7. inspect `hackrf/source_expanded/` and `hackrf/build_results/`
 
-Do not restart the project from scratch and do not return to Fix5 unless new hardware evidence requires it.
+Do not restart the project from scratch and do not return to Fix5/ABI rebasing unless new audit evidence requires it.
 
 ## Current target
 My real PortaPack runs stock Mayhem `n_260808`, upstream tag `nightly-tag-2026-08-08`, commit `367eaf54c0f51f62448d9f2d9585fd3629f6b770`.
 
-The simplified RF probe already works on real hardware and clearly reacts to attaching/removing the antenna.
+Keep stock `n_260808`; do not move to the matched custom `w_260822` firmware without my explicit permission.
 
-## Current full-app result
-The full stock-compatible candidate is:
+## Hardware-proven result — Fix6
+Fix6 passed the hardened zero-drift stock-core ABI audit and has now been tested on real hardware.
 
+Real-device result:
+- app launches without HardFault,
+- red RF/RSSI bar reacts to attaching/removing/aiming the antenna,
+- `SCAN` runs but reports `0 AP`.
+
+Therefore the stock-loader/core-ABI blocker is solved. The current problem is downstream in M4 packet capture / WiFi PHY decoding / reporting.
+
+Fix6 artifact:
 `hackrf/build_results/wifi_aim_full_n260808_fix6/WiFiAIM_n260808_fix6.ppma`
 
 SHA-256:
 `4084904bb1d12229895066f0d1b3424c1dfb5a54fcf40705b6c4cae4f05fe225`
 
-Fix6 build workflow run `32631639944` completed SUCCESS.
+Fix6 workflow run: `32631639944` — SUCCESS.
 
-Hardened verification:
-- size `22720`
-- memory `0x10083EDC`
-- entry `0x10083F31`
-- header `3`
-- version `0x86B64C1D`
-- tag `WAIM`
-- M4 offset `6624`
-- shared core symbol count `7118`
-- core symbol drift count `0`
-- rebase patch count `0`
-- resolved same-address core references in `.ppma` `81`
-- ambiguous count `0`
-- unresolved count `0`
-- checksum `0x00000000`
-- stock `_Znwj = 0x7ee24`
-- modified `_Znwj = 0x7ee24`
-- no retained external `to_string_mac_address` dependency
-- `RESULT=PASS`
+## Current frontier — Fix7 capture/PHY diagnostics
+Readable Fix7 source is under `hackrf/source_expanded/`.
 
-This is the first full candidate with a clean zero-drift stock-core ABI audit. It is **not yet hardware-proven**.
+Fix7 changes include:
+- 2048-sample pre-trigger history using the existing capture buffer,
+- safer M4 member initialization: `BasebandThread` / `RSSIThread` moved to the end of member declarations,
+- lower detector threshold (~1.25x noise floor + margin),
+- SCAN dwell increased to 1000 ms/channel,
+- M0/M4 diagnostics using the existing HunterTrigger ABI.
 
-## Why Fix6 solved Fix5's blocker
-Fix5 had 58 rebasing patches and one unresolved symbol: `_Z21to_string_mac_addressB5cxx11PKhhb`.
+During scan the UI reports:
+- `M` = M4 acknowledged channel,
+- `C` = capture attempts,
+- `D` = successful WiFi PHY decodes.
 
-Fix6 moved BSSID formatting into the external app itself. After that change the stock and modified builds retain the same relevant core addresses; the final image needs zero ABI rebasing patches and has zero unresolved/ambiguous references.
+Interpretation:
+- `M` follows channel, `C=0` -> detector/start path is not triggering,
+- `C>0 D=0` -> capture works but PHY decoder rejects candidates; instrument OFDM/DSSS stages next,
+- `D>0` but AP count remains 0 -> investigate AP report / WireApReport / parser path,
+- AP count > 0 -> continue to SSID/BSSID selection, TARGET, AIM, REF and DELTA REF.
 
-## Exact next action
-Hardware-test Fix6 on stock `n_260808`:
+Fix7 workflow:
+`.github/workflows/build_wifi_aim_full_n260808_fix7.yml`
 
-1. Copy only `WiFiAIM_n260808_fix6.ppma` to `/APPS` on the PortaPack SD card.
-2. Do NOT flash custom firmware.
-3. `WAIM.bin` is already embedded inside the `.ppma`; do not copy it separately.
-4. App metadata puts `WiFi AIM` in the RX menu.
-5. First criterion: app launches without HardFault.
-6. Then test `SCAN -> SSID/BSSID list -> choose exact BSSID -> TARGET -> rotate directional antenna -> REF/DELTA REF`.
+Known Fix7 CI run at handoff:
+- run `32666957127`
+- job `97261737292`
 
-If a HardFault occurs, capture the complete screen, especially PC/LR/R12, and record whether it happened at launch, SCAN, AP selection, TARGET, or REF.
+Check its current/final status in GitHub before building another variant. Do not call Fix7 hardware-proven until it is actually tested on the device.
 
-Do not claim Fix6 is hardware-working until I report the result from the real device.
+## End goal
+`SCAN Wi-Fi by SSID -> choose exact BSSID -> TARGET -> AIM -> REF/DELTA REF`
 
-My end goal remains:
-`SCAN Wi-Fi by SSID -> choose exact BSSID -> TARGET -> AIM -> REF/DELTA REF`, using a directional antenna connected to the HackRF `ANTENNA` SMA. SSID identification is mandatory and final aiming should be target-BSSID-specific whenever possible.
+Requirements remain:
+- passive receive only,
+- channels 1-13,
+- Beacon + Probe Response parsing,
+- hidden SSID handling,
+- exact BSSID targeting,
+- decoder OFF/AUTO/ON framework,
+- LIVE / AVG / PEAK / REF / DELTA REF,
+- relative signal is sufficient; do not claim calibrated dBm.
+
+Directional antenna connects to the HackRF upper SMA marked `ANTENNA`; the lower SMA is CLK IN/OUT.
