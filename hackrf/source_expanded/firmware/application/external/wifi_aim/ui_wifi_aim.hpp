@@ -50,8 +50,8 @@ class WifiAimView final : public View {
     uint32_t timer_ms_{0};
     uint32_t auto_phase_ms_{0};
 
-    // M4 diagnostic counters transported through the stock HunterTrigger ABI.
-    // Counters are 14-bit on the wire and deltas are computed modulo 0x4000.
+    // Fix7b receives M4 diagnostics through the already-existing FSKPacket
+    // handler, avoiding a new HunterTrigger registration in the stock M0 link.
     uint16_t diag_capture_total_{0};
     uint16_t diag_decode_total_{0};
     uint16_t scan_capture_base_{0};
@@ -92,9 +92,6 @@ class WifiAimView final : public View {
     MessageHandlerRegistration packet_handler_{
         Message::ID::FSKPacket,
         [this](const Message* const p) { on_packet(static_cast<const FSKRxPacketMessage*>(p)); }};
-    MessageHandlerRegistration diag_handler_{
-        Message::ID::HunterTrigger,
-        [this](const Message* const p) { on_diag(static_cast<const HunterTriggerMessage*>(p)); }};
 
     void set_decoder(bool on);
     void tune_channel(uint8_t ch);
@@ -104,7 +101,6 @@ class WifiAimView final : public View {
     void cycle_mode();
     void on_frame_sync();
     void on_packet(const FSKRxPacketMessage* msg);
-    void on_diag(const HunterTriggerMessage* msg);
     void update_scan_status();
     uint16_t scan_capture_delta() const;
     uint16_t scan_decode_delta() const;
