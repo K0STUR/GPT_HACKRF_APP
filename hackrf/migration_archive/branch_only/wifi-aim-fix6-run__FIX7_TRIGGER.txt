@@ -1,0 +1,3 @@
+trigger=wifi-aim-fix7
+reason=hardware-scan-0-ap-pretrigger-diagnostics
+revision=1
