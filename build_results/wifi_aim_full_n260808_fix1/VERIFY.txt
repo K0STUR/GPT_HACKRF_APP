@@ -1,7 +1,10 @@
-old_offset=6493
-new_offset=6496
-m4_size=16092
-file_size=22592
-loader_checksum=0x00000000
+size=22592
 sha256=c3e16d35398f28e2130ad992951f5368ecd6f142a473f4198514fe0adcfee49b
-RESULT=PASS
+memory_location=0x10083EDC
+entry=0x10083F31
+header=3
+app_version=0x86B64C1D
+tag=WAIM
+m4_offset=6496
+m4_offset_mod4=0
+loader_checksum=0x00000000
