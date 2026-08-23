@@ -30,8 +30,8 @@ class WifiAimProcessor : public BasebandProcessor {
     uint32_t noise_power_{64};
     uint8_t tuned_channel_{1};
 
-    // Fix7 reuses the start of capture_ as the rolling pre-trigger block while
-    // waiting. This costs no extra M4 RAM compared with Fix6.
+    // Reuse the start of capture_ as the rolling pre-trigger block while
+    // waiting. This costs no extra M4 capture RAM compared with Fix6.
     std::array<wifiaim::IQ8, kCaptureSamples> capture_{};
     std::size_t pretrigger_count_{0};
     std::size_t capture_count_{0};
@@ -46,8 +46,8 @@ class WifiAimProcessor : public BasebandProcessor {
     void copy_into_capture(const buffer_c8_t& buffer);
     void finish_capture();
     void reset_detector();
-    void send_diag_stats();
-    void send_diag_ack();
+    void send_diag_state();
+    void send_wire_report(const wifiaim::WireApReport& wire);
 
     // These threads auto-start in their constructors. Keep them LAST so every
     // state/buffer used by execute() is initialized before the DMA thread runs.
