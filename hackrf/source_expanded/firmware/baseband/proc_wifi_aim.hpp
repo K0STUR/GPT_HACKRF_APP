@@ -18,10 +18,12 @@ class WifiAimProcessor : public BasebandProcessor {
 
    private:
     static constexpr std::size_t baseband_fs = 20'000'000;
-    static constexpr std::size_t kCaptureSamples = 20'000;   // 1.00 ms @ 20 MS/s
-    static constexpr std::size_t kPretriggerSamples = 2'048; // one DMA block of history
+    static constexpr std::size_t kCaptureSamples = 20'000; // 1.00 ms @ 20 MS/s; covers long-preamble DSSS beacon prefix
 
     enum class State : uint8_t { Warmup, Waiting, Capturing, Cooldown };
+
+    BasebandThread baseband_thread{baseband_fs, this, baseband::Direction::Receive};
+    RSSIThread rssi_thread{};
 
     bool enabled_{false};
     State state_{State::Warmup};
@@ -30,27 +32,13 @@ class WifiAimProcessor : public BasebandProcessor {
     uint32_t noise_power_{64};
     uint8_t tuned_channel_{1};
 
-    // Fix7 reuses the start of capture_ as the rolling pre-trigger block while
-    // waiting. This costs no extra M4 RAM compared with Fix6.
     std::array<wifiaim::IQ8, kCaptureSamples> capture_{};
-    std::size_t pretrigger_count_{0};
     std::size_t capture_count_{0};
-    uint16_t capture_attempts_{0};
-    uint16_t decode_successes_{0};
-
     wifiaim::M4WifiDecoder decoder_{};
     FskPacketData packet_{};
 
     uint32_t block_power(const buffer_c8_t& buffer) const;
-    void remember_pretrigger(const buffer_c8_t& buffer);
     void copy_into_capture(const buffer_c8_t& buffer);
     void finish_capture();
     void reset_detector();
-    void send_diag_stats();
-    void send_diag_ack();
-
-    // These threads auto-start in their constructors. Keep them LAST so every
-    // state/buffer used by execute() is initialized before the DMA thread runs.
-    BasebandThread baseband_thread{baseband_fs, this, baseband::Direction::Receive};
-    RSSIThread rssi_thread{};
 };

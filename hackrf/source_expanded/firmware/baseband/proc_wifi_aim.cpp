@@ -15,21 +15,9 @@ uint32_t WifiAimProcessor::block_power(const buffer_c8_t& buffer) const {
     for (std::size_t n = 0; n < buffer.count; ++n) {
         const int32_t i = buffer.p[n].real();
         const int32_t q = buffer.p[n].imag();
-        sum += static_cast<uint32_t>(i * i + q * q);
+        sum += static_cast<uint32_t>(i*i + q*q);
     }
     return sum / static_cast<uint32_t>(buffer.count);
-}
-
-void WifiAimProcessor::remember_pretrigger(const buffer_c8_t& buffer) {
-    // Reuse capture_[0..] while Waiting. Keep only the newest DMA-block tail;
-    // when a burst fires we continue writing directly after these samples.
-    const std::size_t n = std::min<std::size_t>(buffer.count, kPretriggerSamples);
-    const std::size_t start = buffer.count - n;
-    for (std::size_t i = 0; i < n; ++i) {
-        capture_[i].i = buffer.p[start + i].real();
-        capture_[i].q = buffer.p[start + i].imag();
-    }
-    pretrigger_count_ = n;
 }
 
 void WifiAimProcessor::copy_into_capture(const buffer_c8_t& buffer) {
@@ -42,33 +30,14 @@ void WifiAimProcessor::copy_into_capture(const buffer_c8_t& buffer) {
     capture_count_ += ncopy;
 }
 
-void WifiAimProcessor::send_diag_stats() {
-    // ABI-safe diagnostic transport: HunterTrigger already exists in n_260808.
-    // 0xCccccddd: C = stats marker, c = capture attempts, d = successful decodes.
-    HunterTriggerMessage msg{};
-    msg.energy = 0xC0000000u |
-                 ((static_cast<uint32_t>(capture_attempts_) & 0x3FFFu) << 14) |
-                 (static_cast<uint32_t>(decode_successes_) & 0x3FFFu);
-    shared_memory.application_queue.push(msg);
-}
-
-void WifiAimProcessor::send_diag_ack() {
-    // 0xF00000cc confirms M4 received HunterConfig and reports tuned channel.
-    HunterTriggerMessage msg{};
-    msg.energy = 0xF0000000u | static_cast<uint32_t>(tuned_channel_);
-    shared_memory.application_queue.push(msg);
-}
-
 void WifiAimProcessor::reset_detector() {
     capture_count_ = 0;
-    pretrigger_count_ = 0;
     state_ = State::Waiting;
 }
 
 void WifiAimProcessor::finish_capture() {
     wifiaim::M4ApReport ap{};
     if (decoder_.decode(capture_.data(), capture_count_, ap)) {
-        ++decode_successes_;
         if (ap.channel == 0) ap.channel = tuned_channel_;
         wifiaim::WireApReport wire{};
         wire.channel = ap.channel;
@@ -87,11 +56,8 @@ void WifiAimProcessor::finish_capture() {
         FSKRxPacketMessage msg{&packet_};
         shared_memory.application_queue.push(msg);
     }
-
-    send_diag_stats();
     capture_count_ = 0;
-    pretrigger_count_ = 0;
-    cooldown_buffers_ = 2;
+    cooldown_buffers_ = 3;
     state_ = State::Cooldown;
 }
 
@@ -101,35 +67,25 @@ void WifiAimProcessor::execute(const buffer_c8_t& buffer) {
     const uint32_t p = block_power(buffer);
 
     if (state_ == State::Warmup) {
-        // Learn a local background estimate immediately after a retune. Also
-        // retain the latest block so a packet starting on the warmup boundary
-        // still has useful pre-trigger history.
+        // Learn a local noise/background estimate immediately after a retune.
         noise_power_ = (noise_power_ * 3u + p) / 4u;
-        remember_pretrigger(buffer);
         if (warmup_buffers_ && --warmup_buffers_ == 0) state_ = State::Waiting;
         return;
     }
 
     if (state_ == State::Cooldown) {
-        remember_pretrigger(buffer);
         if (cooldown_buffers_ && --cooldown_buffers_ == 0) state_ = State::Waiting;
         return;
     }
 
     if (state_ == State::Waiting) {
-        // Follow the floor slowly. Fix7 deliberately uses a less conservative
-        // trigger than Fix6 and prepends the previous DMA block when a burst is
-        // detected, so the 802.11 preamble/LTF is not lost at the block edge.
+        // Follow the floor slowly, but do not let a short packet drag it upward quickly.
         if (p < noise_power_ * 2u) noise_power_ = (noise_power_ * 31u + p) / 32u;
-        const uint32_t threshold = noise_power_ + (noise_power_ >> 2) + 32u;  // ~1.25x + margin
+        const uint32_t threshold = noise_power_ + (noise_power_ >> 1) + 80u; // ~1.5x + margin
         if (p >= threshold) {
-            ++capture_attempts_;
-            capture_count_ = pretrigger_count_; // previous block already lives at capture_[0..]
-            copy_into_capture(buffer);
-            pretrigger_count_ = 0;
+            capture_count_ = 0;
+            copy_into_capture(buffer); // retain the triggering block (important for PLCP sync)
             state_ = State::Capturing;
-        } else {
-            remember_pretrigger(buffer);
         }
         return;
     }
@@ -149,12 +105,8 @@ void WifiAimProcessor::on_message(const Message* const message) {
                 tuned_channel_ = static_cast<uint8_t>(m.energy_threshold);
             enabled_ = m.start;
             capture_count_ = 0;
-            pretrigger_count_ = 0;
             warmup_buffers_ = 8;
-            cooldown_buffers_ = 0;
             state_ = enabled_ ? State::Warmup : State::Waiting;
-            send_diag_ack();
-            send_diag_stats();
             break;
         }
         default:
