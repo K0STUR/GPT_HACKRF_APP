@@ -1,4 +1,5 @@
 # migration trigger 2026-08-23
+# rerun after anonymous codeload fix
 name: Migrate HackRF project from GPT
 
 on:
