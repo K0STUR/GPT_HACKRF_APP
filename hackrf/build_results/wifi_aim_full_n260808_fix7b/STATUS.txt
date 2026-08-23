@@ -1,0 +1,5 @@
+WiFi AIM n_260808 Fix7b
+RESULT=PASS
+STATIC_STATUS=approved_for_hardware_test
+HARDWARE_STATUS=pending
+Purpose=Fix7 M4 pretrigger/init/threshold/scan diagnostics with M0 telemetry transported through existing FSKPacket IPC path to preserve zero-drift stock core ABI.
