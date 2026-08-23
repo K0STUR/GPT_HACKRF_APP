@@ -1,8 +1,12 @@
-name: Build WiFi AIM n_260808 fix6 local-MAC ABI-remap
+name: Build WiFi AIM n_260808 fix6 zero-drift ABI audit
 
 on:
   push:
     paths:
+      - '.github/workflows/build_wifi_aim_full_n260808_fix6.yml'
+  pull_request:
+    paths:
+      - 'hackrf/FIX6_TRIGGER.txt'
       - '.github/workflows/build_wifi_aim_full_n260808_fix6.yml'
   workflow_dispatch:
 
@@ -62,8 +66,6 @@ jobs:
           // uppercase hexadecimal, and the third argument means noColon.
           static std::string wifi_aim_local_mac_string(const uint8_t* mac, uint8_t length, bool noColon) {
               if (!mac || length == 0) return {};
-              // WiFi AIM passes BSSIDs (6 bytes). Keep a bounded local buffer so
-              // formatting itself does not add another core helper dependency.
               if (length > 6) length = 6;
               constexpr char digits[] = "0123456789ABCDEF";
               char out[18]{};
@@ -171,7 +173,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p hackrf/build_results/wifi_aim_full_n260808_fix6
+          OUT=hackrf/build_results/wifi_aim_full_n260808_fix6
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
           cd mayhem_mod
           mkdir -p build
           set -o pipefail
@@ -179,20 +183,23 @@ jobs:
           docker run --rm --entrypoint sh -v "$PWD":/havoc portapack-dev -lc \
             "arm-none-eabi-nm -n /havoc/build/firmware/application/application.elf" > ../mod_nm.txt
           cd ..
-          cp hackrf_fix6_build.log hackrf/build_results/wifi_aim_full_n260808_fix6/BUILD.log
+          cp hackrf_fix6_build.log "$OUT/BUILD.log"
 
-      - name: Remap external-app core references to exact stock ABI
+      - name: Audit zero-drift stock ABI and build final PPMA
         shell: bash
         run: |
           set -euo pipefail
           OUT=hackrf/build_results/wifi_aim_full_n260808_fix6
           cp mayhem_mod/build/firmware/application/wifi_aim.ppma /tmp/in.ppma
           cp mayhem_mod/build/firmware/baseband/WAIM.bin "$OUT/WAIM.bin"
+          test -s /tmp/in.ppma
+          test -s "$OUT/WAIM.bin"
           python3 - <<'PY'
           from pathlib import Path
           import struct, hashlib, base64
 
           MACSYM='_Z21to_string_mac_addressB5cxx11PKhhb'
+          EXPECTED_VERSION=0x86B64C1D
 
           def read_nm(path):
               by_name={}; by_addr={}
@@ -207,21 +214,47 @@ jobs:
                   by_addr.setdefault(addr,[]).append(n)
               return by_name,by_addr
 
+          def is_core_addr(addr):
+              return (
+                  0x00000000 <= addr < 0x00100000 or
+                  0x10000000 <= addr < 0x10080000 or
+                  0x20000000 <= addr < 0x20040000
+              )
+
           stock_name,stock_addr=read_nm('stock_nm.txt')
           mod_name,mod_addr=read_nm('mod_nm.txt')
+
+          # Stronger than the old "patch_count > 0" sentinel: prove that every
+          # uniquely named stock-core symbol shared by both links stayed at the
+          # exact same address. With an isolated external-app section Fix6 should
+          # need zero ABI patches. Any real core drift is a hard failure.
+          shared_core=[]
+          core_drift=[]
+          for name,saddrs in stock_name.items():
+              maddrs=mod_name.get(name)
+              if len(saddrs)!=1 or not maddrs or len(maddrs)!=1:
+                  continue
+              sa=saddrs[0]; ma=maddrs[0]
+              if not is_core_addr(sa):
+                  continue
+              shared_core.append((name,sa))
+              if ma != sa:
+                  core_drift.append((name,sa,ma))
+
           src=bytearray(Path('/tmp/in.ppma').read_bytes())
           mem,entry,hdr,ver=struct.unpack_from('<IIII',src,0)
           tag=bytes(src[76:80])
           m4off=struct.unpack_from('<I',src,80)[0]
           assert m4off%4==0
 
-          patches=[]; unresolved=[]; ambiguous=[]
+          patches=[]; resolved_same=[]; unresolved=[]; ambiguous=[]
           for off in range(0,m4off,4):
               val=struct.unpack_from('<I',src,off)[0]
               thumb=val&1
               base=val&~1
               names=mod_addr.get(base,[])
               if not names: continue
+              # References into the loaded external app are internal, not core ABI.
               if 0x10080000 <= base < 0x10090000: continue
               candidates=[]
               missing=[]
@@ -237,10 +270,12 @@ jobs:
                   if newval!=val:
                       patches.append((off,val,newval,names))
                       struct.pack_into('<I',src,off,newval)
+                  elif is_core_addr(base):
+                      resolved_same.append((off,val,names))
               elif len(candidates)>1:
                   ambiguous.append((off,val,names,candidates))
               elif missing:
-                  if base < 0x00100000 or (0x10000000 <= base < 0x10080000) or (0x20000000 <= base < 0x20040000):
+                  if is_core_addr(base):
                       unresolved.append((off,val,missing))
 
           body=src[:-4]
@@ -262,9 +297,13 @@ jobs:
           report.append(f'version=0x{ver:08X}')
           report.append(f'tag={tag!r}')
           report.append(f'm4_offset={m4off}')
+          report.append(f'shared_core_symbol_count={len(shared_core)}')
+          report.append(f'core_symbol_drift_count={len(core_drift)}')
+          for x in core_drift[:100]: report.append('CORE_DRIFT '+repr(x))
           report.append(f'patch_count={len(patches)}')
           for off,old,new,names in patches:
               report.append(f'PATCH off=0x{off:04X} 0x{old:08X}->0x{new:08X} names={names}')
+          report.append(f'resolved_same_core_reference_count={len(resolved_same)}')
           report.append(f'ambiguous_count={len(ambiguous)}')
           for x in ambiguous[:50]: report.append('AMBIG '+repr(x))
           report.append(f'unresolved_count={len(unresolved)}')
@@ -278,15 +317,23 @@ jobs:
 
           ok=(
               len(src) < 32768 and
+              len(src) >= 88 and
               hdr == 3 and
+              ver == EXPECTED_VERSION and
               tag == b'WAIM' and
               (entry & 1) == 1 and
+              mem <= (entry & ~1) < mem + m4off and
+              84 <= m4off < len(src)-4 and
               m4off % 4 == 0 and
               final == 0 and
-              len(patches) > 0 and
+              len(shared_core) > 0 and
+              len(core_drift) == 0 and
+              len(patches) == 0 and
+              len(resolved_same) > 0 and
               len(unresolved) == 0 and
               len(ambiguous) == 0 and
               stock_name.get('_Znwj') == [0x7ee24] and
+              mod_name.get('_Znwj') == [0x7ee24] and
               not stock_name.get(MACSYM) and
               not mod_name.get(MACSYM)
           )
@@ -305,17 +352,15 @@ jobs:
         run: |
           OUT=hackrf/build_results/wifi_aim_full_n260808_fix6
           mkdir -p "$OUT"
-          if [ ! -f "$OUT/STATUS.txt" ]; then
-            if [ -f "$OUT/VERIFY.txt" ] && grep -q '^RESULT=PASS$' "$OUT/VERIFY.txt"; then
-              printf 'WiFi AIM n_260808 fix6\nRESULT=PASS\nPurpose=remove non-stock to_string_mac_address dependency and require zero unresolved/ambiguous stock-ABI imports\n' > "$OUT/STATUS.txt"
-            else
-              printf 'WiFi AIM n_260808 fix6\nRESULT=INCOMPLETE_OR_FAIL\nInspect BUILD.log and VERIFY.txt when present.\n' > "$OUT/STATUS.txt"
-            fi
+          if [ -f "$OUT/VERIFY.txt" ] && grep -q '^RESULT=PASS$' "$OUT/VERIFY.txt"; then
+            printf 'WiFi AIM n_260808 fix6\nRESULT=PASS\nPurpose=local MAC formatter plus zero-drift stock-core ABI audit; zero unresolved/ambiguous imports; zero rebasing patches required\n' > "$OUT/STATUS.txt"
+          else
+            printf 'WiFi AIM n_260808 fix6\nRESULT=INCOMPLETE_OR_FAIL\nInspect BUILD.log and VERIFY.txt when present.\n' > "$OUT/STATUS.txt"
           fi
           git config user.name 'wifi-aim-builder'
           git config user.email 'actions@users.noreply.github.com'
           git add -f "$OUT" || true
-          git commit -m 'Publish WiFi AIM n_260808 fix6 stock-ABI build' || true
+          git commit -m 'Publish WiFi AIM n_260808 fix6 zero-drift audit' || true
           git pull --rebase origin main || true
           git push origin HEAD:main || true
 

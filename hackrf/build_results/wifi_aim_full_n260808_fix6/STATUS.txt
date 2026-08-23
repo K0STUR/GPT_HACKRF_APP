@@ -1,3 +1,0 @@
-WiFi AIM n_260808 fix6
-RESULT=PASS
-Purpose=local MAC formatter plus zero-drift stock-core ABI audit; zero unresolved/ambiguous imports; zero rebasing patches required
