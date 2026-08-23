@@ -19,10 +19,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Clone source repository
+      - name: Download public source GPT snapshot
+        shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/K0STUR/GPT.git /tmp/source
+          rm -rf /tmp/source /tmp/source.tar.gz
+          curl -fL --retry 3 -o /tmp/source.tar.gz https://codeload.github.com/K0STUR/GPT/tar.gz/refs/heads/main
+          mkdir -p /tmp/source
+          tar -xzf /tmp/source.tar.gz --strip-components=1 -C /tmp/source
+          test -d /tmp/source/hackrf
 
       - name: Copy HackRF / WiFi AIM project
         shell: bash
@@ -38,21 +43,34 @@ jobs:
             [ -f "/tmp/source/$f" ] && cp -a "/tmp/source/$f" ./ || true
           done
 
-          mkdir -p .github/workflows
-          find /tmp/source/.github/workflows -maxdepth 1 -type f \( -iname '*hackrf*' -o -iname '*wifi_aim*' -o -iname '*ppma*' -o -iname '*veneer*' \) -print0 | xargs -0 -r -I{} cp -a {} .github/workflows/
+          [ -f /tmp/source/AGENTS.md ] && cp -a /tmp/source/AGENTS.md ./AGENTS.md || true
+
+          # Preserve all HackRF/WiFi-AIM workflow files as ordinary files first.
+          # They are moved into .github/workflows by ChatGPT after this commit is verified.
+          rm -rf hackrf/_migration_workflows
+          mkdir -p hackrf/_migration_workflows
+          find /tmp/source/.github/workflows -maxdepth 1 -type f \( -iname '*hackrf*' -o -iname '*wifi*aim*' -o -iname '*ppma*' -o -iname '*veneer*' \) -print0 | while IFS= read -r -d '' f; do
+            cp -a "$f" hackrf/_migration_workflows/
+          done
 
           cat > README.md <<'EOF'
           # GPT_HACKRF_APP
 
-          Development repository for the HackRF One + PortaPack Mayhem WiFi AIM application.
+          Development repository for the HackRF One + PortaPack Mayhem **WiFi AIM** application.
 
           Main project documentation and current state are in [`hackrf/`](hackrf/).
+
+          Start with:
+          - `hackrf/README.md`
+          - `hackrf/PROJECT_STATUS.md`
+          - `hackrf/NEXT_CHAT_PROMPT.md`
+          - `hackrf/TEST_LOG.md`
 
           This repository was split from `K0STUR/GPT` so HackRF/WiFi AIM development and GitHub Actions are isolated from the FORDstecki project.
           EOF
 
           rm -f MIGRATION_BOOTSTRAP.md MIGRATION_ACCESS_OK.txt MIGRATION_TEST.txt TEST.txt
-          rm -f .github/workflows/migrate_from_gpt.yml .github/workflows/x.txt
+          rm -f .github/test.txt .github/workflows/x.txt
 
       - name: Verify copied project
         shell: bash
@@ -62,14 +80,14 @@ jobs:
           test -f hackrf/README.md
           test -f hackrf/PROJECT_STATUS.md
           test -f hackrf/TEST_LOG.md
-          test -f .github/workflows/build_wifi_aim_full_n260808_fix7.yml
+          test -f hackrf/_migration_workflows/build_wifi_aim_full_n260808_fix7.yml
           echo 'Destination project verification: PASS'
           echo -n 'hackrf files: '
           find hackrf -type f | wc -l
-          echo 'workflows:'
-          find .github/workflows -maxdepth 1 -type f | sort
+          echo -n 'preserved workflow files: '
+          find hackrf/_migration_workflows -maxdepth 1 -type f | wc -l
 
-      - name: Commit migration
+      - name: Commit migrated snapshot
         shell: bash
         run: |
           set -euo pipefail
@@ -80,5 +98,5 @@ jobs:
             echo 'No migration changes to commit.'
             exit 0
           fi
-          git commit -m 'Migrate HackRF WiFi AIM project from K0STUR/GPT'
+          git commit -m 'Migrate HackRF WiFi AIM project snapshot from K0STUR/GPT [skip ci]'
           git push
