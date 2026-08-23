@@ -1,3 +1,0 @@
-WiFi AIM n_260808 fix7
-RESULT=INCOMPLETE_OR_FAIL
-Inspect BUILD.log and VERIFY.txt when present.
