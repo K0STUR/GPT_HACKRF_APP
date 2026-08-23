@@ -1,113 +1,106 @@
 # HackRF / PortaPack / WiFi AIM — handoff
 
-Updated: 2026-08-23
+Updated: 2026-08-24
 
-This folder is the canonical entry point for continuing the HackRF/PortaPack project. The canonical repository is now **`K0STUR/GPT_HACKRF_APP`**.
+This folder is the canonical entry point for continuing the HackRF/PortaPack project. The canonical repository is **`K0STUR/GPT_HACKRF_APP`**.
 
-The old `K0STUR/GPT` repository has been cleaned and is now reserved for `FORDstecki` only.
+The old `K0STUR/GPT` repository is reserved for `FORDstecki` only.
 
 ## Read first
-1. `PROJECT_STATUS.md` — current frontier and history of what worked/failed.
+1. `PROJECT_STATUS.md` — current frontier and history.
 2. `TEST_LOG.md` — hardware tests and build/audit evidence.
 3. `NEXT_CHAT_PROMPT.md` — ready-to-use continuation prompt.
 4. `HANDOVER_MASTER.md` — historical project context.
-5. `WIFI_AIM_SPEC.md` — required behaviour of the custom WiFi AIM app.
+5. `WIFI_AIM_SPEC.md` — required behaviour.
 6. `FIX6_STATIC_PASS_AND_HARDWARE_TEST.md` — Fix6 milestone.
 7. `source_expanded/` — readable current source.
-8. `build_results/wifi_aim_full_n260808_fix7/` — complete archived Fix7 CI output.
+8. `build_results/wifi_aim_full_n260808_fix7/` — archived failed Fix7 output.
 
 ## Current one-line status
-**Fix6 is hardware-launch proven on stock Mayhem `n_260808`: app launch PASS, RF/RSSI reacts to the antenna, but SCAN returns `0 AP`. Fix7 added the right capture/diagnostic changes, but its hardened stock-core ABI audit FAILED because it shifted 179 shared core symbols. Therefore Fix7 must NOT be hardware-tested yet.**
+**Fix6 is hardware-launch proven on stock Mayhem `n_260808` but SCAN returns `0 AP`. Fix7 improved capture/telemetry but failed zero-drift ABI. Fix7b keeps the useful Fix7 M4 changes, moves telemetry onto the existing Fix6 `FSKPacket` IPC path, and has now passed the hardened zero-drift audit. Fix7b is ready for hardware test; hardware result is still pending.**
 
-## Proven baseline — Fix6
+## Hardware-proven baseline — Fix6
 Artifact:
 `build_results/wifi_aim_full_n260808_fix6/WiFiAIM_n260808_fix6.ppma`
 
 SHA-256:
 `4084904bb1d12229895066f0d1b3424c1dfb5a54fcf40705b6c4cae4f05fe225`
 
-Static verification:
-- size `22720`
+Real hardware:
+- launch PASS
+- no HardFault
+- RF/RSSI bar reacts to antenna
+- SCAN `0 AP`
+
+This proves the stock loader/core-ABI route works.
+
+## Fix7 — archived static FAIL
+Fix7 added:
+- 2048-sample pre-trigger history,
+- safer M4 thread initialization order,
+- lower detector threshold,
+- 1000 ms/channel dwell,
+- M/C/D runtime diagnostics.
+
+Its additional M0 `HunterTrigger` handler shifted 179 shared core symbols. The candidate is archived for evidence and must not be put on the device.
+
+Archived output:
+`build_results/wifi_aim_full_n260808_fix7/`
+
+## Fix7b — current static PASS candidate
+Fix7b retains all useful M4/pre-trigger changes but **does not add a new M0 message-handler type**. M/C/D telemetry is multiplexed through the existing `FSKPacket` route already used by Fix6. `WireApReport.flags` bit1 marks a diagnostic-only report.
+
+CI:
+- technical PR `#4`
+- run `32671853658`
+- job `97273779780`
+- Actions result `SUCCESS`
+- artifact `wifi-aim-full-n260808-fix7b`, ID `9501915159`
+
+Hardened verification:
+- size `23396`
 - header `3`
 - version `0x86B64C1D` (`n_260808`)
 - tag `WAIM`
-- M4 offset `6624`
-- shared core symbols compared `7118`
-- core symbol drift `0`
+- M4 offset `7036`
+- shared core symbols `7086`
+- **core symbol drift `0`**
+- drift references `0`
 - ABI rebase patches `0`
-- same-address core references `81`
-- ambiguous imports `0`
-- unresolved imports `0`
+- same-address core references `80`
+- ambiguous `0`
+- unresolved `0`
 - checksum `0x00000000`
-- RESULT `PASS`
+- stock/mod `_Znwj = 0x7ee24`
+- PPMA SHA-256 `730dee07e741cc5a2764dfcf9ffbae52622caf25a75ea6e94a7ffabbf9cb2b49`
+- **RESULT `PASS`**
 
-Real hardware:
-- launch: PASS
-- HardFault: none
-- RF/RSSI bar reacts to antenna: PASS
-- SCAN: `0 AP`
+The downloaded artifact was independently rechecked: size/header/version/tag/M4 offset/Thumb entry/checksum/SHA all match CI.
 
-This proves the stock loader/core-ABI route works. Do not return to Fix5-style rebasing unless new evidence actually requires it.
+## Next hardware test
+Keep stock Mayhem `n_260808`. Do not flash firmware.
 
-## Fix7 — source improvement, static ABI FAIL
-Fix7 source under `source_expanded/` adds:
-- 2048 IQ samples of pre-trigger history using the existing capture buffer,
-- safer M4 initialization order (`BasebandThread` / `RSSIThread` moved last),
-- lower detector threshold,
-- 1000 ms/channel scan dwell,
-- `M/C/D` diagnostics over the existing stock `HunterTriggerMessage` ABI.
+Copy **only** `WiFiAIM_n260808_fix7b.ppma` into `/APPS` and remove/move Fix6 from `/APPS` first to avoid duplicate menu items. `WAIM.bin` is embedded and must not be copied separately.
 
-Intended diagnostics:
+During SCAN observe:
 - `M` = last channel acknowledged by M4,
 - `C` = capture attempts,
 - `D` = successful Wi-Fi PHY decodes.
 
-Fix7 CI:
-- run `32666957127`
-- job `97261737292`
-- GitHub job itself completed successfully, including build and publication steps.
+After ~13 seconds report the exact final string such as `Done 0AP C123 D0` and whether `M` followed the scanned channel.
 
-However the **actual hardened VERIFY result is FAIL**:
-- size `23508`
-- memory `0x10083FEC`
-- entry `0x10084041`
-- M4 offset `7140`
-- shared core symbols `7118`
-- **core symbol drift `179`**
-- patch count `0`
-- same-address core refs `80`
-- ambiguous `0`
-- unresolved `0`
-- checksum `0x00000000`
-- PPMA SHA-256 `cb1cab400ea934f3d0bf2d3116d624c3310375a7f7342a2c00b3ec4a4d71248f`
-- **RESULT `FAIL`**
-
-Complete archived output:
-`build_results/wifi_aim_full_n260808_fix7/`
-
-It contains the original Actions artifact ZIP, `BUILD.log`, `.ppma`, `.b64`, `WAIM.bin`, `VERIFY.txt`, `STATUS.txt`, and hashes.
-
-**Do not copy `WiFiAIM_n260808_fix7.ppma` to the PortaPack.**
-
-## Exact next engineering action
-Keep the useful Fix7 pre-trigger / M4 init / diagnostics changes, but restore the same zero-drift property achieved by Fix6.
-
-Investigate the first new 4-byte shift in the modified M0/core layout (the drift starts around stock `0x000A3C68`) and determine which Fix7-added M0 object/data/rodata/registration escaped the external-app section. Then rebuild and require:
-- `core_symbol_drift_count=0`
-- `patch_count=0`
-- `ambiguous_count=0`
-- `unresolved_count=0`
-- final checksum `0`
-- `RESULT=PASS`
-
-Only after that should a new Fix7-compatible candidate be hardware-tested and its `M/C/D` values used to localize SCAN `0 AP`.
+Interpretation:
+- `M` follows + `C=0` -> capture detector issue;
+- `C>0 D=0` -> capture works; instrument PHY stages next;
+- `D>0` but AP=0 -> report/parser path;
+- AP>0 -> continue directly to SSID/BSSID TARGET and AIM/REF/DELTA.
 
 ## Firmware rule
 Keep stock Mayhem `n_260808`:
-- upstream tag `nightly-tag-2026-08-08`
+- tag `nightly-tag-2026-08-08`
 - commit `367eaf54c0f51f62448d9f2d9585fd3629f6b770`
 
-Do **not** flash the matched custom `w_260822` firmware without explicit user permission.
+Do **not** flash matched custom `w_260822` without explicit permission.
 
 ## Final goal
 `SCAN Wi-Fi by SSID -> choose exact BSSID -> TARGET -> AIM -> REF/DELTA REF`
