@@ -1,9 +1,9 @@
-# bootstrap-trigger-2
 name: One-time migrate HackRF project from GPT
 
 on:
-  push:
+  pull_request:
     paths:
+      - 'MIGRATE_TRIGGER.txt'
       - '.github/workflows/migrate_from_gpt.yml'
   workflow_dispatch:
 
@@ -14,9 +14,10 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout destination repository
+      - name: Checkout destination repository main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Clone source GPT repository
