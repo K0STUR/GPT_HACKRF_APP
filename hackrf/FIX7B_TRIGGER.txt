@@ -1,0 +1,2 @@
+Fix7c hardware candidate validation.
+Build the current source_expanded tree (separate AP/diagnostic FSK buffers, throttled failed-capture telemetry, exact final C/D refresh) against exact stock n_260808 and require the same hardened zero-drift PASS criteria.
