@@ -1,1 +1,1 @@
-Prepare Fix8d full legacy OFDM support.
+Prepare Fix8d full legacy OFDM support — branch trigger.
