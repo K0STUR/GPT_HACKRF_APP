@@ -171,6 +171,9 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
 
     // bit7 marks a diagnostics-only packet; it is not an access point report.
     if (w.flags & 0x80u) {
+        // While aiming, diagnostics must never overwrite LIVE/AVG/PEAK/DELTA.
+        if (target_set_) return;
+
         // Fix8a reuses otherwise-unused diagnostic BSSID bytes. ssid_len=0xF8
         // distinguishes this from older Fix7b/Fix7c telemetry.
         if (w.ssid_len == 0xF8u || w.ssid_len == 0xF9u) {
@@ -194,8 +197,22 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
             text_channel.set("SQ " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[8])) +
                              " R " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[9])) +
                              " N " + to_string_dec_uint(n));
+
+            text_delta.set("P S/F/G/B/I " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[12])) + "/" +
+                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[13])) + "/" +
+                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[14])) + "/" +
+                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[15])) + "/" +
+                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[16])));
+            text_peak.set("DS A/S " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[19])) + "/" +
+                          to_string_dec_uint(static_cast<uint8_t>(w.ssid[20])) + " FC " +
+                          to_string_dec_uint(static_cast<uint8_t>(w.ssid[17])) + "/" +
+                          to_string_dec_uint(static_cast<uint8_t>(w.ssid[18])));
         }
         update_done_status();
+        // Fix8e usability: the final disabled-state telemetry arrives after
+        // end_scan(). If an AP was found, restore the user-facing AP/BSSID/CH
+        // fields after recording diagnostics instead of hiding the result.
+        if (!scanning_ && ap_count_) update_ap_display();
         return;
     }
 

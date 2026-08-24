@@ -1,0 +1,1 @@
+Run hardened audit for Fix8e post-MAC diagnostics and throughput guard.

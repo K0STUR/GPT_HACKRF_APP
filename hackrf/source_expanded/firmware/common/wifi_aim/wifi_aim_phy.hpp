@@ -26,6 +26,15 @@ struct M4OfdmTrace {
     uint8_t ltf_score{0};      // Fix8c repetition sync quality, 0..100
     uint8_t rate_raw{0xFF};    // parser representation of R1..R4
     uint16_t length{0};        // decoded PSDU length when available
+
+    // Fix8e post-DATA classification. post_stage is sequential:
+    // 1=remaining SERVICE bits descramble to zero, 2=802.11 protocol version 0,
+    // 3=management frame, 4=Beacon/Probe Response, 5=SSID IE parsed.
+    uint8_t post_stage{0};
+    uint8_t frame_type{0xFF};
+    uint8_t frame_subtype{0xFF};
+    bool dsss_attempted{false};
+    bool dsss_success{false};
 };
 
 // Legacy 802.11b, long preamble, 1 Mbit/s DBPSK/DSSS.
@@ -84,7 +93,17 @@ class M4WifiDecoder {
    public:
     bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4OfdmTrace* trace = nullptr) {
         if (ofdm_.decode(samples, sample_count, out, trace)) return true;
-        return dsss_.decode(samples, sample_count, out);
+
+        // Fix8e throughput guard: a parity-valid legacy OFDM SIGNAL means this
+        // capture is already convincingly OFDM. Running the exhaustive DSSS
+        // phase/offset search after that is wasted CPU and can make the M4 miss
+        // later DMA blocks. Preserve DSSS fallback for captures that did not
+        // reach OFDM parity, including real 1 Mbit/s beacons.
+        if (trace && trace->stage >= 4u) return false;
+        if (trace) trace->dsss_attempted = true;
+        const bool ok = dsss_.decode(samples, sample_count, out);
+        if (trace) trace->dsss_success = ok;
+        return ok;
     }
    private:
     M4OfdmWifiDecoder ofdm_{};

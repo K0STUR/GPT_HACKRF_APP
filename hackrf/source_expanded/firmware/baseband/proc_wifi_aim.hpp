@@ -54,6 +54,13 @@ class WifiAimProcessor : public BasebandProcessor {
     uint8_t ofdm_last_rate_{0xFF};
     uint16_t ofdm_last_length_{0};
 
+    // Fix8e post-DATA OFDM and DSSS-path telemetry.
+    std::array<uint8_t,5> ofdm_post_hits_{};
+    uint8_t ofdm_last_type_{0xFF};
+    uint8_t ofdm_last_subtype_{0xFF};
+    uint8_t dsss_attempts_{0};
+    uint8_t dsss_successes_{0};
+
     wifiaim::M4WifiDecoder decoder_{};
 
     // FSKRxPacketMessage carries a pointer to FskPacketData. Keep AP reports
