@@ -60,19 +60,29 @@ void WifiAimProcessor::reset_probe_diag() {
     probe_o16_peak_ = 0;
     probe_o64_peak_ = 0;
     probe_barker_peak_ = 0;
+    ofdm_stage_hits_.fill(0);
+    ofdm_ltf_peak_ = 0;
+    ofdm_last_rate_ = 0xFFu;
+    ofdm_last_length_ = 0;
 }
 
 void WifiAimProcessor::fill_probe_diag(wifiaim::WireApReport& wire) const {
     // Diagnostic-only packets do not use BSSID/SSID fields. Reuse those six
     // bytes as a compact Fix8a telemetry payload without changing WireApReport
     // layout or any stock-core message ABI.
-    wire.ssid_len = 0xF8u;  // Fix8a raw-capture probe marker.
+    wire.ssid_len = 0xF9u;  // Fix8b: Fix8a probe + OFDM internal stages.
     wire.bssid[0] = probe_o16_hits_;
     wire.bssid[1] = probe_o64_hits_;
     wire.bssid[2] = probe_barker_hits_;
     wire.bssid[3] = probe_o16_peak_;
     wire.bssid[4] = probe_o64_peak_;
     wire.bssid[5] = probe_barker_peak_;
+    for (std::size_t i = 0; i < ofdm_stage_hits_.size(); ++i)
+        wire.ssid[i] = static_cast<char>(ofdm_stage_hits_[i]);
+    wire.ssid[8] = static_cast<char>(ofdm_ltf_peak_);
+    wire.ssid[9] = static_cast<char>(ofdm_last_rate_);
+    wire.ssid[10] = static_cast<char>(ofdm_last_length_ & 0xFFu);
+    wire.ssid[11] = static_cast<char>((ofdm_last_length_ >> 8) & 0xFFu);
 }
 
 void WifiAimProcessor::send_diag_state() {
@@ -106,7 +116,13 @@ void WifiAimProcessor::finish_capture() {
     probe_barker_peak_ = std::max(probe_barker_peak_, probe.barker_score);
 
     wifiaim::M4ApReport ap{};
-    const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap);
+    wifiaim::M4OfdmTrace ofdm_trace{};
+    const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap, &ofdm_trace);
+    for (uint8_t i = 0; i < ofdm_trace.stage && i < ofdm_stage_hits_.size(); ++i)
+        if (ofdm_stage_hits_[i] != 0xFFu) ++ofdm_stage_hits_[i];
+    ofdm_ltf_peak_ = std::max(ofdm_ltf_peak_, ofdm_trace.ltf_score);
+    if (ofdm_trace.rate_raw != 0xFFu) ofdm_last_rate_ = ofdm_trace.rate_raw;
+    if (ofdm_trace.length) ofdm_last_length_ = ofdm_trace.length;
     if (decoded) ++decode_successes_;
 
     wifiaim::WireApReport wire{};

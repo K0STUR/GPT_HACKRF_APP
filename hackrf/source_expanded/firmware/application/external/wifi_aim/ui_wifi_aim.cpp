@@ -173,12 +173,27 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
     if (w.flags & 0x80u) {
         // Fix8a reuses otherwise-unused diagnostic BSSID bytes. ssid_len=0xF8
         // distinguishes this from older Fix7b/Fix7c telemetry.
-        if (w.ssid_len == 0xF8u) {
+        if (w.ssid_len == 0xF8u || w.ssid_len == 0xF9u) {
             text_level.set("HIT 16/64/B " + to_string_dec_uint(w.bssid[0]) + "/" +
                            to_string_dec_uint(w.bssid[1]) + "/" + to_string_dec_uint(w.bssid[2]));
             text_avg.set("Q   16/64/B " + to_string_dec_uint(w.bssid[3]) + "/" +
                          to_string_dec_uint(w.bssid[4]) + "/" + to_string_dec_uint(w.bssid[5]));
             text_peak.set("M4 CH: " + to_string_dec_uint(diag_ack_channel_));
+        }
+        if (w.ssid_len == 0xF9u) {
+            text_ap.set("OF L/H/V/P " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[0])) + "/" +
+                        to_string_dec_uint(static_cast<uint8_t>(w.ssid[1])) + "/" +
+                        to_string_dec_uint(static_cast<uint8_t>(w.ssid[2])) + "/" +
+                        to_string_dec_uint(static_cast<uint8_t>(w.ssid[3])));
+            text_bssid.set("OF R/N/D/M " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[4])) + "/" +
+                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[5])) + "/" +
+                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[6])) + "/" +
+                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[7])));
+            const uint16_t n = static_cast<uint16_t>(static_cast<uint8_t>(w.ssid[10])) |
+                               static_cast<uint16_t>(static_cast<uint8_t>(w.ssid[11]) << 8);
+            text_channel.set("LQ " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[8])) +
+                             " R " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[9])) +
+                             " N " + to_string_dec_uint(n));
         }
         update_done_status();
         return;

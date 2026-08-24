@@ -48,6 +48,12 @@ class WifiAimProcessor : public BasebandProcessor {
     uint8_t probe_o64_peak_{0};
     uint8_t probe_barker_peak_{0};
 
+    // Fix8b OFDM stage telemetry, reset at the start of every SCAN.
+    std::array<uint8_t,8> ofdm_stage_hits_{};
+    uint8_t ofdm_ltf_peak_{0};
+    uint8_t ofdm_last_rate_{0xFF};
+    uint16_t ofdm_last_length_{0};
+
     wifiaim::M4WifiDecoder decoder_{};
 
     // FSKRxPacketMessage carries a pointer to FskPacketData. Keep AP reports

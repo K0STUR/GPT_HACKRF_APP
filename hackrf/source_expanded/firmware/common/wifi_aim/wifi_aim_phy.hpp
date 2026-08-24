@@ -18,6 +18,16 @@ struct M4ApReport {
     uint8_t phy_rate_mbps{0};
 };
 
+// Fix8b: maximum OFDM decoder stage reached by one capture.
+// 1=LTF, 2=SIGNAL hard demod, 3=SIGNAL Viterbi, 4=parity,
+// 5=RATE, 6=LENGTH, 7=DATA Viterbi, 8=MAC beacon/probe parser.
+struct M4OfdmTrace {
+    uint8_t stage{0};
+    uint8_t ltf_score{0};      // best ideal-LTF correlation, 0..100
+    uint8_t rate_raw{0xFF};    // parser representation of R1..R4
+    uint16_t length{0};        // decoded PSDU length when available
+};
+
 // Legacy 802.11b, long preamble, 1 Mbit/s DBPSK/DSSS.
 class M4LegacyWifiDecoder {
    public:
@@ -40,7 +50,7 @@ class M4OfdmWifiDecoder {
     static constexpr std::size_t kMaxDecodedBits = 896;
     static constexpr std::size_t kMaxCodedBits = kMaxDecodedBits * 2;
     static constexpr std::size_t kMaxCbps = 192;
-    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out);
+    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4OfdmTrace* trace = nullptr);
 
    private:
     struct FCpx { float r{0.0f}; float i{0.0f}; };
@@ -69,8 +79,8 @@ class M4OfdmWifiDecoder {
 // gives a cheap, highly selective rejection; DSSS is the fallback.
 class M4WifiDecoder {
    public:
-    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out) {
-        if (ofdm_.decode(samples, sample_count, out)) return true;
+    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4OfdmTrace* trace = nullptr) {
+        if (ofdm_.decode(samples, sample_count, out, trace)) return true;
         return dsss_.decode(samples, sample_count, out);
     }
    private:

@@ -237,6 +237,7 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
         const float q=(cr*cr+ci*ci)/(ref_e*ey);
         if (q>best) { best=q; best_d=d; }
     }
+    score = best;
     if (best < 0.22f) return false;
 
     // Correlation also peaks at the second L-LTF. Prefer the preceding copy.
@@ -449,10 +450,17 @@ bool M4OfdmWifiDecoder::viterbi(const uint8_t* coded, std::size_t coded_count,
     return true;
 }
 
-bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out) {
+bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out, M4OfdmTrace* trace) {
     out={}; out.packet_db_x10=-1200;
+    if (trace) *trace = {};
     std::size_t L=0; float cfo_step_r=1.0f, cfo_step_i=0.0f, ltf_score=0.0f;
-    if (!find_ltf(s,count,L,cfo_step_r,cfo_step_i,ltf_score)) return false;
+    const bool ltf_ok = find_ltf(s,count,L,cfo_step_r,cfo_step_i,ltf_score);
+    if (trace) {
+        const float q = std::max(0.0f, std::min(1.0f, ltf_score));
+        trace->ltf_score = static_cast<uint8_t>(q * 100.0f + 0.5f);
+    }
+    if (!ltf_ok) return false;
+    if (trace) trace->stage = 1;
     if (L+224+64>count) return false;
 
     // Channel estimate from two repeated L-LTF symbols.
@@ -469,19 +477,26 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out)
     uint8_t rx_bits[kMaxCbps]{};
     uint8_t de_bits[kMaxCbps]{};
     if (!hard_symbol(s,L+144,L,cfo_step_r,cfo_step_i,0,1,rx_bits)) return false; // SIGNAL is always BPSK 1/2
+    if (trace) trace->stage = 2;
     deinterleave(rx_bits,de_bits,48,1);
     std::size_t sig_dec=0;
     if (!viterbi(de_bits,48,decoded_.data(),sig_dec) || sig_dec<24) return false;
+    if (trace) trace->stage = 3;
+    unsigned rate_parser=0;
+    for (unsigned i=0;i<4;++i) if (decoded_[i]) rate_parser|=1u<<i;
+    if (trace) trace->rate_raw = static_cast<uint8_t>(rate_parser);
     bool parity=false;
     for (unsigned i=0;i<17;++i) parity^=(decoded_[i]&1u)!=0;
     if (parity!=(decoded_[17]!=0)) return false;
-    unsigned rate_parser=0;
-    for (unsigned i=0;i<4;++i) if (decoded_[i]) rate_parser|=1u<<i;
+    if (trace) trace->stage = 4;
     unsigned n_bpsc=0,n_cbps=0,n_dbps=0; uint8_t rate_mbps=0;
     if (!rate_params(rate_parser,n_bpsc,n_cbps,n_dbps,rate_mbps)) return false;
+    if (trace) trace->stage = 5;
     unsigned psdu_len=0;
     for (unsigned i=5;i<17;++i) if (decoded_[i]) psdu_len|=1u<<(i-5);
+    if (trace) trace->length = static_cast<uint16_t>(psdu_len);
     if (psdu_len<36 || psdu_len>2304) return false;
+    if (trace) trace->stage = 6;
 
     const std::size_t want_bytes=std::min<std::size_t>(psdu_len,kMaxPrefixBytes);
     const std::size_t want_bits=std::min<std::size_t>(kMaxDecodedBits,16u+want_bytes*8u+80u);
@@ -501,6 +516,7 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out)
     }
     std::size_t data_dec=0;
     if (coded_n<static_cast<std::size_t>(n_cbps) || !viterbi(coded_.data(),coded_n,decoded_.data(),data_dec) || data_dec<16+36*8) return false;
+    if (trace) trace->stage = 7;
 
     // IEEE 802.11 descrambler: derive the seven-bit state from the first seven
     // decoded SERVICE bits (which were zero before scrambling).
@@ -520,6 +536,7 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out)
     if (prefix_n<36) return false;
     M4ApReport candidate{};
     if (!parse_prefix_fixed(bytes_.data()+2,prefix_n,candidate)) return false;
+    if (trace) trace->stage = 8;
 
     // Relative packet level from the L-LTF capture. This is not calibrated dBm;
     // it is intentionally stable for delta/aim measurements at fixed gain.
