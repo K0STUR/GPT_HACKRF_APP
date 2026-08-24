@@ -1,0 +1,88 @@
+name: Fix8m one-shot SERVICE-distance telemetry patch
+
+on:
+  push:
+    branches:
+      - wifi-aim-fix8m-service-distance
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wifi-aim-fix8m-service-distance
+          fetch-depth: 0
+
+      - name: Apply Fix8m SERVICE-distance telemetry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) Internal M4 trace: record Hamming distance of the known-zero
+          # SERVICE bits 7..15. This does not touch WireApReport/stock ABI.
+          p = Path('hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.hpp')
+          s = p.read_text()
+          old = '''    uint8_t post_stage{0};\n    uint8_t frame_type{0xFFu};\n    uint8_t frame_subtype{0xFFu};'''
+          new = '''    uint8_t post_stage{0};\n    // Fix8m: number of non-zero descrambled SERVICE bits among bits 7..15.\n    // 0 means the SERVICE check passed; 0xFF means DATA was never reached.\n    uint8_t service_errors{0xFFu};\n    uint8_t frame_type{0xFFu};\n    uint8_t frame_subtype{0xFFu};'''
+          if old in s:
+              if s.count(old) != 1:
+                  raise SystemExit(f'header anchor count={s.count(old)}')
+              p.write_text(s.replace(old, new, 1))
+          elif new not in s:
+              raise SystemExit('Fix8m header anchor not found')
+
+          # 2) Decoder: preserve the exact existing accept/reject condition,
+          # but count how far a DATA candidate is from valid SERVICE.
+          p = Path('hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp')
+          s = p.read_text()
+          old = '''    bool service_tail_zero = true;\n    for (std::size_t i=7;i<max_out_bits;++i) {\n        const unsigned feedback=((state&64u)?1u:0u)^((state&8u)?1u:0u);\n        const unsigned bit=feedback^(decoded_[i]&1u);\n        if (i < 16u && bit) service_tail_zero = false;\n        bytes_[i/8u]|=static_cast<uint8_t>(bit<<(i%8u));\n        state=((state<<1)&0x7e)|feedback;\n    }\n    if (!service_tail_zero) return false;'''
+          new = '''    uint8_t service_errors = 0u;\n    for (std::size_t i=7;i<max_out_bits;++i) {\n        const unsigned feedback=((state&64u)?1u:0u)^((state&8u)?1u:0u);\n        const unsigned bit=feedback^(decoded_[i]&1u);\n        if (i < 16u && bit && service_errors != 0xFFu) ++service_errors;\n        bytes_[i/8u]|=static_cast<uint8_t>(bit<<(i%8u));\n        state=((state<<1)&0x7e)|feedback;\n    }\n    if (trace) trace->service_errors = service_errors;\n    if (service_errors != 0u) return false;'''
+          if old in s:
+              if s.count(old) != 1:
+                  raise SystemExit(f'decoder anchor count={s.count(old)}')
+              p.write_text(s.replace(old, new, 1))
+          elif new not in s:
+              raise SystemExit('Fix8m decoder anchor not found')
+
+          # 3) Processor: after at least one DATA candidate, pin FC x/y to the
+          # best (minimum) SERVICE error count and its RATE raw value. This
+          # prevents later low-stage DSSS diagnostics from overwriting it.
+          p = Path('hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp')
+          s = p.read_text()
+          old = '''    for (uint8_t i = 0; i < ofdm_trace.post_stage && i < ofdm_post_hits_.size(); ++i)\n        if (ofdm_post_hits_[i] != 0xFFu) ++ofdm_post_hits_[i];\n    if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;\n    if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;'''
+          new = '''    for (uint8_t i = 0; i < ofdm_trace.post_stage && i < ofdm_post_hits_.size(); ++i)\n        if (ofdm_post_hits_[i] != 0xFFu) ++ofdm_post_hits_[i];\n    // Fix8m: FC becomes min SERVICE-bit errors / RATE for DATA candidates.\n    // Before any DATA candidate exists, retain the older FC diagnostics.\n    if (ofdm_trace.stage >= 7u && ofdm_trace.service_errors != 0xFFu) {\n        if (ofdm_last_type_ == 0xFFu || ofdm_trace.service_errors < ofdm_last_type_) {\n            ofdm_last_type_ = ofdm_trace.service_errors;\n            ofdm_last_subtype_ = ofdm_trace.rate_raw;\n        }\n    } else if (ofdm_last_type_ == 0xFFu) {\n        if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;\n        if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;\n    }'''
+          if old in s:
+              if s.count(old) != 1:
+                  raise SystemExit(f'processor anchor count={s.count(old)}')
+              p.write_text(s.replace(old, new, 1))
+          elif new not in s:
+              raise SystemExit('Fix8m processor anchor not found')
+
+          print('Applied Fix8m SERVICE-distance telemetry')
+          PY
+
+      - name: Commit Fix8m source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- \
+              hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.hpp \
+              hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp \
+              hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp; then
+            echo 'No source change to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+              hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.hpp \
+              hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp \
+              hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp
+          git commit -m 'Fix8m: measure SERVICE distance on DATA candidates'
+          git push origin HEAD:wifi-aim-fix8m-service-distance
