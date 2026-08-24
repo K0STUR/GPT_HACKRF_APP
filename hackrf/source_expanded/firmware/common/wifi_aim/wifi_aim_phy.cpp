@@ -606,6 +606,13 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     for (unsigned i=0;i<17;++i) parity^=(decoded_[i]&1u)!=0;
     if (parity!=(decoded_[17]!=0)) return false;
     if (trace) trace->stage = 4;
+
+    // Fix8i: legacy OFDM SIGNAL also requires RESERVED=0 and all six TAIL
+    // bits to be zero. Parity alone accepts random 24-bit words roughly half
+    // the time, which made false captures look as if they reached valid DATA.
+    if (decoded_[4] != 0u) return false;
+    for (unsigned i=18;i<24;++i) if (decoded_[i] != 0u) return false;
+
     unsigned n_bpsc=0,n_cbps=0,n_dbps=0,puncture_mode=0; uint8_t rate_mbps=0;
     if (!rate_params(rate_parser,n_bpsc,n_cbps,n_dbps,rate_mbps,puncture_mode)) return false;
     if (trace) trace->stage = 5;
