@@ -87,23 +87,46 @@ class M4OfdmWifiDecoder {
     bool viterbi(const uint8_t* coded, std::size_t coded_count, uint8_t* decoded, std::size_t& decoded_count);
 };
 
-// Combined decoder used by the app. OFDM is attempted first because its LTF
-// gives a cheap, highly selective rejection; DSSS is normally the fallback.
+// Combined decoder used by the app. OFDM is always attempted first. Fix8g
+// restores DSSS after Fix8f proved exhaustive fallback was starving capture
+// throughput, but admits expensive DSSS work using the already-computed raw
+// Barker score plus a bounded periodic sampling budget.
 class M4WifiDecoder {
    public:
-    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4OfdmTrace* trace = nullptr) {
+    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out,
+                M4OfdmTrace* trace = nullptr, uint8_t barker_score = 0u) {
         if (ofdm_.decode(samples, sample_count, out, trace)) return true;
 
-        // Fix8f diagnostic isolation: temporarily disable DSSS completely.
-        // The sole purpose of this branch is to test whether exhaustive DSSS
-        // processing is responsible for the Fix8e C20+ -> C1 capture collapse.
-        // Expected hardware signature if DSSS starvation is the cause:
-        // capture throughput returns near Fix8d territory while DS A/S stays 0/0.
-        return false;
+        // Captures that reached a parity-valid OFDM SIGNAL are overwhelmingly
+        // OFDM-like; do not spend the expensive legacy DSSS path on them.
+        if (trace && trace->stage >= 4u) return false;
+
+        // One sequence counter for low-stage OFDM rejects. Strong Barker gets
+        // immediate service, medium scores are sampled progressively, and even
+        // weak/noisy captures get a sparse 1/16 fallback so the gate cannot
+        // permanently exclude a real DSSS AP because of probe-score variance.
+        const uint8_t seq = ++dsss_gate_seq_;
+        bool allow_dsss = false;
+        if (barker_score >= 70u) {
+            allow_dsss = true;
+        } else if (barker_score >= 55u) {
+            allow_dsss = (seq & 0x01u) == 0u;      // 1/2
+        } else if (barker_score >= 45u) {
+            allow_dsss = (seq & 0x03u) == 0u;      // 1/4
+        } else {
+            allow_dsss = (seq & 0x0Fu) == 0u;      // 1/16 safety sample
+        }
+        if (!allow_dsss) return false;
+
+        if (trace) trace->dsss_attempted = true;
+        const bool ok = dsss_.decode(samples, sample_count, out);
+        if (trace) trace->dsss_success = ok;
+        return ok;
     }
    private:
     M4OfdmWifiDecoder ofdm_{};
     M4LegacyWifiDecoder dsss_{};
+    uint8_t dsss_gate_seq_{0};
 };
 
 } // namespace wifiaim
