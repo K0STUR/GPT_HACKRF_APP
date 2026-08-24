@@ -22,10 +22,6 @@ inline uint8_t parity7(uint8_t x) {
     x ^= x >> 4; x ^= x >> 2; x ^= x >> 1; return x & 1u;
 }
 
-// Small libm-free log2 for relative-power readout. Input is positive and
-// clamped well above the subnormal range by relative_db_x10(). For mantissa
-// m in [1,2), z=(m-1)/(m+1) <= 1/3; a 7th-order atanh series keeps the
-// resulting dB error far below 0.01 dB over the range used by the app.
 inline float fast_log2_positive(float x) {
     uint32_t bits = 0;
     std::memcpy(&bits, &x, sizeof(bits));
@@ -41,16 +37,12 @@ inline float fast_log2_positive(float x) {
 
 inline int16_t relative_db_x10(float normalized_power) {
     const float x = std::max(normalized_power, 1.0e-12f);
-    // packet_db_x10 = 10 * (10*log10(power)) = 100*log10(power).
     const float scaled = 30.102999566f * fast_log2_positive(x);
     int32_t rounded = static_cast<int32_t>(scaled >= 0.0f ? scaled + 0.5f : scaled - 0.5f);
     rounded = std::max<int32_t>(-1200, std::min<int32_t>(300, rounded));
     return static_cast<int16_t>(rounded);
 }
 
-// Two Newton refinements of the classic reciprocal-square-root seed. This is
-// accurate enough for CPE/channel normalization and avoids pulling libm sqrtf
-// into the very small M4 code bank.
 inline float fast_rsqrt(float x) {
     if (x <= 0.0f) return 0.0f;
     float y=x;
@@ -95,13 +87,9 @@ bool parse_prefix_fixed(const uint8_t* f, std::size_t len, M4ApReport& out) {
         p += n;
         if (ssid_seen && out.channel) return true;
     }
-    // DS Parameter Set (IE 3) is optional. The processor fills channel from
-    // the channel currently tuned during the scan when this remains zero.
     return ssid_seen;
 }
 
-// 64-sample IEEE 802.11 legacy long-training symbol, 20 Msps, IFFT scale 1/64.
-// Derived from the standard 52-subcarrier L-LTF BPSK sequence.
 struct RefC { float r; float i; };
 constexpr RefC kLtf[64] = {
 {0.156250000f,0.000000000f},{-0.005121250f,-0.120325133f},{0.039749698f,-0.111157943f},{0.096831885f,0.082797909f},
@@ -122,7 +110,6 @@ constexpr RefC kLtf[64] = {
 {0.021111770f,-0.027885919f},{0.096831885f,-0.082797909f},{0.039749698f,0.111157943f},{-0.005121250f,0.120325133f}
 };
 
-// Unshifted 64-bin L-LTF frequency sequence; DC/guards are zero.
 constexpr int8_t kLongBins[64] = {
 0,1,-1,-1,1,1,-1,1,-1,1,-1,-1,-1,-1,-1,1,1,-1,-1,1,-1,1,-1,1,1,1,1,0,0,0,0,0,
 0,0,0,0,0,0,1,1,-1,-1,1,1,-1,1,-1,1,1,1,1,1,1,-1,-1,1,1,-1,1,-1,1,1,1,1
@@ -139,7 +126,6 @@ constexpr RefC kTwiddle[32] = {
 {-0.923879533f,-0.382683432f},{-0.956940336f,-0.290284677f},{-0.980785280f,-0.195090322f},{-0.995184727f,-0.098017140f}
 };
 
-// First 64 values are sufficient for SIGNAL + the prefix-sized DATA window.
 constexpr int8_t kPilotPolarity[64] = {
 1,1,1,1,-1,-1,-1,1,-1,-1,-1,-1,1,1,-1,1,-1,-1,1,1,-1,1,1,-1,1,1,1,1,1,1,-1,1,
 1,1,-1,1,1,-1,-1,1,1,1,-1,1,-1,-1,-1,1,-1,1,-1,-1,1,-1,-1,1,1,1,1,1,-1,-1,1,1
@@ -219,19 +205,6 @@ bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& ou
 bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1,
                                       float& cfo_step_r, float& cfo_step_i, float& score) {
     if (!s || count < 500) return false;
-
-    // Fix8c: synchronize from a channel-invariant property of the legacy
-    // preamble instead of requiring a strong match to an *ideal* undistorted
-    // L-LTF. The two long-training symbols repeat after 64 samples, while the
-    // preceding STF is strongly 16-sample periodic. Therefore
-    //
-    //     metric = Q64 * (1 - Q16)
-    //
-    // is high over the GI2/L-LTF region and low over STF. This remains useful
-    // after multipath because both repeated LTF copies traverse the same RF
-    // channel. We select the strongest short contiguous run and back the FFT
-    // timing up by eight samples so SIGNAL/DATA FFT windows remain safely
-    // inside their 16-sample cyclic prefixes.
     constexpr float kSyncThreshold = 0.15f;
     constexpr std::size_t kMinRun = 4;
     constexpr std::size_t kTimingBackoff = 8;
@@ -313,7 +286,6 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
     std::size_t best_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;
     if (best_d + 128u > count) return false;
 
-    // CFO from the same two repeated 64-sample windows selected above.
     float pr = 0.0f, pi = 0.0f;
     for (std::size_t n = 0; n < 64u; ++n) {
         const float ar = static_cast<float>(s[best_d + n].i);
@@ -347,8 +319,6 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
 
 void M4OfdmWifiDecoder::load_fft(const IQ8* s, std::size_t start, std::size_t origin,
                                  float cfo_step_r, float cfo_step_i) {
-    // Build correction phase for (start-origin) using integer complex power,
-    // then advance one sample at a time. All callers use start >= origin.
     uint32_t delta=static_cast<uint32_t>(start-origin);
     float rr=1.0f, ri=0.0f;
     float br=cfo_step_r, bi=cfo_step_i;
@@ -375,7 +345,6 @@ void M4OfdmWifiDecoder::load_fft(const IQ8* s, std::size_t start, std::size_t or
 }
 
 void M4OfdmWifiDecoder::fft64() {
-    // Bit reversal.
     for (unsigned i=1,j=0;i<64;++i) {
         unsigned bit=32;
         for (; j&bit; bit>>=1) j^=bit;
@@ -422,8 +391,6 @@ bool M4OfdmWifiDecoder::hard_symbol(const IQ8* s, std::size_t fft_start, std::si
     const float cpe_pow=cr*cr+ci*ci;
     if (cpe_pow<1e-8f) return false;
     const float inv_cpe=fast_rsqrt(cpe_pow);
-    // Rotate by conj(CPE) and normalize the CPE magnitude. The channel estimate
-    // already normalizes RF gain, so 16-QAM inner/outer threshold is 2/sqrt(10).
     constexpr float qam16_inner_threshold=0.632455532f;
     unsigned o=0;
     for (unsigned n=0;n<48;++n) {
@@ -433,23 +400,17 @@ bool M4OfdmWifiDecoder::hard_symbol(const IQ8* s, std::size_t fft_start, std::si
         if (n_bpsc==1u) {
             out_bits[o++]=(re<0.0f)?1u:0u;
         } else if (n_bpsc==2u) {
-            // QPSK: one sign bit per axis. The sign convention is inherited
-            // from the existing channel-estimate orientation and is already
-            // hardware-proven by SIGNAL decoding.
             out_bits[o++]=(re<0.0f)?1u:0u;
             out_bits[o++]=(im<0.0f)?1u:0u;
         } else if (n_bpsc==4u) {
-            // 16-QAM Gray map. b0,b1 select I and b2,b3 select Q.
             out_bits[o++]=(re<0.0f)?1u:0u;
             out_bits[o++]=((re<0.0f?-re:re)<qam16_inner_threshold)?1u:0u;
             out_bits[o++]=(im<0.0f)?1u:0u;
             out_bits[o++]=((im<0.0f?-im:im)<qam16_inner_threshold)?1u:0u;
         } else {
-            // 64-QAM Gray map. Normalized levels are 1,3,5,7 over sqrt(42).
-            // For each axis: sign, inner-half bit, middle-ring bit.
-            constexpr float t2 = 0.308606700f;  // 2/sqrt(42)
-            constexpr float t4 = 0.617213400f;  // 4/sqrt(42)
-            constexpr float t6 = 0.925820100f;  // 6/sqrt(42)
+            constexpr float t2 = 0.308606700f;
+            constexpr float t4 = 0.617213400f;
+            constexpr float t6 = 0.925820100f;
             const float ar = re<0.0f ? -re : re;
             const float ai = im<0.0f ? -im : im;
             out_bits[o++]=(re<0.0f)?1u:0u;
@@ -466,8 +427,6 @@ bool M4OfdmWifiDecoder::hard_symbol(const IQ8* s, std::size_t fft_start, std::si
 void M4OfdmWifiDecoder::deinterleave(const uint8_t* in, uint8_t* out, unsigned n_cbps, unsigned n_bpsc) {
     if (!in || !out || !n_cbps) return;
     const unsigned s=std::max(n_bpsc/2u,1u);
-    // Inverse of the IEEE two-step legacy OFDM interleaver. This is written
-    // with integer arithmetic so it is deterministic on the M4.
     for (unsigned k=0;k<n_cbps;++k) {
         const unsigned first=s*(k/s)+((k+(16u*k)/n_cbps)%s);
         const unsigned second=16u*first-(n_cbps-1u)*((16u*first)/n_cbps);
@@ -478,18 +437,15 @@ void M4OfdmWifiDecoder::deinterleave(const uint8_t* in, uint8_t* out, unsigned n
 bool M4OfdmWifiDecoder::rate_params(unsigned signal_rate_parser_value, unsigned& n_bpsc,
                                     unsigned& n_cbps, unsigned& n_dbps, uint8_t& rate_mbps,
                                     unsigned& puncture_mode) {
-    // Parser values are bit-reversed relative to the familiar SIGNAL RATE
-    // constants because decoded_[0] is accumulated as the numeric LSB.
-    // puncture_mode: 0=1/2, 1=2/3, 2=3/4.
     switch (signal_rate_parser_value) {
-        case 11u: n_bpsc=1; n_cbps=48;  n_dbps=24;  rate_mbps=6;  puncture_mode=0; return true; // 0xD
-        case 15u: n_bpsc=1; n_cbps=48;  n_dbps=36;  rate_mbps=9;  puncture_mode=2; return true; // 0xF
-        case 10u: n_bpsc=2; n_cbps=96;  n_dbps=48;  rate_mbps=12; puncture_mode=0; return true; // 0x5
-        case 14u: n_bpsc=2; n_cbps=96;  n_dbps=72;  rate_mbps=18; puncture_mode=2; return true; // 0x7
-        case 9u:  n_bpsc=4; n_cbps=192; n_dbps=96;  rate_mbps=24; puncture_mode=0; return true; // 0x9
-        case 13u: n_bpsc=4; n_cbps=192; n_dbps=144; rate_mbps=36; puncture_mode=2; return true; // 0xB
-        case 8u:  n_bpsc=6; n_cbps=288; n_dbps=192; rate_mbps=48; puncture_mode=1; return true; // 0x1
-        case 12u: n_bpsc=6; n_cbps=288; n_dbps=216; rate_mbps=54; puncture_mode=2; return true; // 0x3
+        case 11u: n_bpsc=1; n_cbps=48;  n_dbps=24;  rate_mbps=6;  puncture_mode=0; return true;
+        case 15u: n_bpsc=1; n_cbps=48;  n_dbps=36;  rate_mbps=9;  puncture_mode=2; return true;
+        case 10u: n_bpsc=2; n_cbps=96;  n_dbps=48;  rate_mbps=12; puncture_mode=0; return true;
+        case 14u: n_bpsc=2; n_cbps=96;  n_dbps=72;  rate_mbps=18; puncture_mode=2; return true;
+        case 9u:  n_bpsc=4; n_cbps=192; n_dbps=96;  rate_mbps=24; puncture_mode=0; return true;
+        case 13u: n_bpsc=4; n_cbps=192; n_dbps=144; rate_mbps=36; puncture_mode=2; return true;
+        case 8u:  n_bpsc=6; n_cbps=288; n_dbps=192; rate_mbps=48; puncture_mode=1; return true;
+        case 12u: n_bpsc=6; n_cbps=288; n_dbps=216; rate_mbps=54; puncture_mode=2; return true;
         default: return false;
     }
 }
@@ -510,16 +466,13 @@ std::size_t M4OfdmWifiDecoder::depuncture(const uint8_t* in, std::size_t in_coun
     const std::size_t period = puncture_mode == 1u ? 4u : 6u;
 
     std::size_t ii = 0, oo = 0, pi = 0;
-    // OFDM N_DBPS values align every symbol to a full puncturing period. Keep
-    // walking the final zero entries after the last transmitted bit so the
-    // mother-code stream handed to Viterbi remains exactly rate-1/2.
     while (ii < in_count || pi != 0u) {
         if (oo >= out_capacity) return 0;
         if (pattern[pi]) {
             if (ii >= in_count) return 0;
             out[oo++] = static_cast<uint8_t>(in[ii++] & 1u);
         } else {
-            out[oo++] = 2u;  // erasure: Viterbi assigns zero branch penalty
+            out[oo++] = 2u;
         }
         pi = (pi + 1u) % period;
     }
@@ -544,8 +497,6 @@ bool M4OfdmWifiDecoder::viterbi(const uint8_t* coded, std::size_t coded_count,
             const unsigned p1=p0|32u;
             const uint8_t reg0=static_cast<uint8_t>(((p0<<1)&0x7e)|bit);
             const uint8_t reg1=static_cast<uint8_t>(((p1<<1)&0x7e)|bit);
-            // Value 2 is a puncturing erasure. It contributes no branch
-            // penalty, leaving the surviving transmitted bit(s) to decide.
             const uint16_t bm0=static_cast<uint16_t>(((r0<2u)&&(parity7(reg0&0155)!=r0))+((r1<2u)&&(parity7(reg0&0117)!=r1)));
             const uint16_t bm1=static_cast<uint16_t>(((r0<2u)&&(parity7(reg1&0155)!=r0))+((r1<2u)&&(parity7(reg1&0117)!=r1)));
             const uint16_t m0=static_cast<uint16_t>(pm[p0]+bm0);
@@ -556,8 +507,13 @@ bool M4OfdmWifiDecoder::viterbi(const uint8_t* coded, std::size_t coded_count,
         std::memcpy(pm,nm,sizeof(pm));
         survivor_[t]=decisions;
     }
+    // Fix8j: SIGNAL is a 24-bit terminated convolutional block. Its six TAIL
+    // zeros guarantee encoder state 0 at the end, so traceback must start at
+    // state 0. Prefix DATA decoding is intentionally left unconstrained.
     unsigned state=0;
-    for (unsigned s=1;s<64;++s) if (pm[s]<pm[state]) state=s;
+    if (steps != 24u) {
+        for (unsigned s=1;s<64;++s) if (pm[s]<pm[state]) state=s;
+    }
     for (std::size_t tt=steps;tt-- > 0;) {
         decoded[tt]=static_cast<uint8_t>(state&1u);
         const unsigned hi=static_cast<unsigned>((survivor_[tt]>>state)&1u);
@@ -580,7 +536,6 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     if (trace) trace->stage = 1;
     if (L+224+64>count) return false;
 
-    // Channel estimate from two repeated L-LTF symbols.
     load_fft(s,L,L,cfo_step_r,cfo_step_i);
     for (unsigned b=0;b<64;++b) h_[b]=fft_[b];
     load_fft(s,L+64,L,cfo_step_r,cfo_step_i);
@@ -593,7 +548,7 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
 
     uint8_t rx_bits[kMaxCbps]{};
     uint8_t de_bits[kMaxCbps]{};
-    if (!hard_symbol(s,L+144,L,cfo_step_r,cfo_step_i,0,1,rx_bits)) return false; // SIGNAL is always BPSK 1/2
+    if (!hard_symbol(s,L+144,L,cfo_step_r,cfo_step_i,0,1,rx_bits)) return false;
     if (trace) trace->stage = 2;
     deinterleave(rx_bits,de_bits,48,1);
     std::size_t sig_dec=0;
@@ -606,10 +561,6 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     for (unsigned i=0;i<17;++i) parity^=(decoded_[i]&1u)!=0;
     if (parity!=(decoded_[17]!=0)) return false;
     if (trace) trace->stage = 4;
-
-    // Fix8i: legacy OFDM SIGNAL also requires RESERVED=0 and all six TAIL
-    // bits to be zero. Parity alone accepts random 24-bit words roughly half
-    // the time, which made false captures look as if they reached valid DATA.
     if (decoded_[4] != 0u) return false;
     for (unsigned i=18;i<24;++i) if (decoded_[i] != 0u) return false;
 
@@ -644,8 +595,6 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     if (coded_n<static_cast<std::size_t>(2u*n_dbps) || !viterbi(coded_.data(),coded_n,decoded_.data(),data_dec) || data_dec<16+36*8) return false;
     if (trace) trace->stage = 7;
 
-    // IEEE 802.11 descrambler: derive the seven-bit state from the first seven
-    // decoded SERVICE bits (which were zero before scrambling).
     unsigned state=0;
     for (unsigned i=0;i<7;++i) if (decoded_[i]) state|=1u<<(6-i);
     bytes_.fill(0);
@@ -688,8 +637,6 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
         trace->stage = 8;
     }
 
-    // Relative packet level from the L-LTF capture. This is not calibrated dBm;
-    // it is intentionally stable for delta/aim measurements at fixed gain.
     float e=0.0f;
     for (std::size_t n=0;n<128 && L+n<count;++n) {
         const float xr=s[L+n].i, xi=s[L+n].q;
