@@ -1,0 +1,10 @@
+Fix8a compiled with the hardened Fix7b audit harness.
+GitHub Actions run: 32699435547
+Job: 97347800013
+Artifact ID: 9510405146
+Artifact name: wifi-aim-full-n260808-fix7b
+Original PPMA filename inside artifact: WiFiAIM_n260808_fix7b.ppma
+Canonical Fix8a test filename after download: WiFiAIM_n260808_fix8a.ppma
+Artifact digest: sha256:a39fb90bf54360bcb3ff89fbb5524b8d024d9c294d758c83e535c7a62e6a9dfb
+PPMA SHA-256: 3fdfd70530a2217888c93c9c11259ecac02ca54371b4998391d31dc006224e9d
+Independent local recheck: size=24800, 32-bit word checksum=0x00000000, SHA matches CI, Fix8a UI strings confirmed inside PPMA.
