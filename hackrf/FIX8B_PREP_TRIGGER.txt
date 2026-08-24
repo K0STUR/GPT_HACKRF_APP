@@ -1,1 +1,2 @@
 Prepare Fix8b OFDM stage diagnostics from the hardware-proven Fix8a baseline.
+trigger=2
