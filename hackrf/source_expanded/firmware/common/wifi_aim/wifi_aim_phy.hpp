@@ -23,7 +23,7 @@ struct M4ApReport {
 // 5=RATE, 6=LENGTH, 7=DATA Viterbi, 8=MAC beacon/probe parser.
 struct M4OfdmTrace {
     uint8_t stage{0};
-    uint8_t ltf_score{0};      // best ideal-LTF correlation, 0..100
+    uint8_t ltf_score{0};      // Fix8c repetition sync quality, 0..100
     uint8_t rate_raw{0xFF};    // parser representation of R1..R4
     uint16_t length{0};        // decoded PSDU length when available
 };

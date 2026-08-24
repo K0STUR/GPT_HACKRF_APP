@@ -1,1 +1,0 @@
-Prepare Fix8c repetition-based LTF synchronization — branch run.
