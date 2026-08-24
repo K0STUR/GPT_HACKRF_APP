@@ -1,1 +1,0 @@
-Prepare Fix8d full legacy OFDM support.

@@ -41,15 +41,15 @@ class M4LegacyWifiDecoder {
     std::array<uint8_t, kMaxPrefixBytes> prefix_{};
 };
 
-// Legacy OFDM 6/12/24 Mbit/s (all rate-1/2 modes: BPSK/QPSK/16-QAM).
-// These are the three mandatory OFDM basic-rate candidates most useful for
-// management-frame discovery. 20 Msps only.
+// Full legacy OFDM 6/9/12/18/24/36/48/54 Mbit/s. Supports BPSK, QPSK,
+// 16-QAM, 64-QAM and rate-1/2, 2/3, 3/4 punctured convolutional coding.
+// 20 Msps only.
 class M4OfdmWifiDecoder {
    public:
     static constexpr std::size_t kMaxPrefixBytes = 96;
     static constexpr std::size_t kMaxDecodedBits = 896;
     static constexpr std::size_t kMaxCodedBits = kMaxDecodedBits * 2;
-    static constexpr std::size_t kMaxCbps = 192;
+    static constexpr std::size_t kMaxCbps = 288;  // 64-QAM: 48 data subcarriers * 6 bits
     bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4OfdmTrace* trace = nullptr);
 
    private:
@@ -71,7 +71,10 @@ class M4OfdmWifiDecoder {
                      unsigned n_bpsc, uint8_t* out_bits);
     static void deinterleave(const uint8_t* in, uint8_t* out, unsigned n_cbps, unsigned n_bpsc);
     static bool rate_params(unsigned signal_rate_parser_value, unsigned& n_bpsc,
-                            unsigned& n_cbps, unsigned& n_dbps, uint8_t& rate_mbps);
+                            unsigned& n_cbps, unsigned& n_dbps, uint8_t& rate_mbps,
+                            unsigned& puncture_mode);
+    static std::size_t depuncture(const uint8_t* in, std::size_t in_count, unsigned puncture_mode,
+                                  uint8_t* out, std::size_t out_capacity);
     bool viterbi(const uint8_t* coded, std::size_t coded_count, uint8_t* decoded, std::size_t& decoded_count);
 };
 
