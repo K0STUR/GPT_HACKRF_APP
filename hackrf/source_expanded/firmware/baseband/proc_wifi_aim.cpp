@@ -134,8 +134,13 @@ void WifiAimProcessor::finish_capture() {
     for (uint8_t i = 0; i < ofdm_trace.stage && i < ofdm_stage_hits_.size(); ++i)
         if (ofdm_stage_hits_[i] != 0xFFu) ++ofdm_stage_hits_[i];
     ofdm_ltf_peak_ = std::max(ofdm_ltf_peak_, ofdm_trace.ltf_score);
-    if (ofdm_trace.rate_raw != 0xFFu) ofdm_last_rate_ = ofdm_trace.rate_raw;
-    if (ofdm_trace.length) ofdm_last_length_ = ofdm_trace.length;
+    // Fix8l: A/N telemetry must describe the candidate that actually reached
+    // DATA Viterbi. Later parity-only/noisy captures used to overwrite these
+    // fields and made hardware results impossible to classify by PHY rate.
+    if (ofdm_trace.stage >= 7u) {
+        if (ofdm_trace.rate_raw != 0xFFu) ofdm_last_rate_ = ofdm_trace.rate_raw;
+        if (ofdm_trace.length) ofdm_last_length_ = ofdm_trace.length;
+    }
     for (uint8_t i = 0; i < ofdm_trace.post_stage && i < ofdm_post_hits_.size(); ++i)
         if (ofdm_post_hits_[i] != 0xFFu) ++ofdm_post_hits_[i];
     if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;
