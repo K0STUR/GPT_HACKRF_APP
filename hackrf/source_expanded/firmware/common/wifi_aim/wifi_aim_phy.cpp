@@ -490,7 +490,7 @@ bool M4OfdmWifiDecoder::viterbi(const uint8_t* coded, std::size_t coded_count,
     pm[0]=0;
     for (std::size_t t=0;t<steps;++t) {
         uint64_t decisions=0;
-        const uint8_t r0=coded[2*t]&1u, r1=coded[2*t+1]&1u;
+        const uint8_t r0=coded[2*t], r1=coded[2*t+1];
         for (unsigned ns=0;ns<64;++ns) {
             const uint8_t bit=ns&1u;
             const unsigned p0=ns>>1;
