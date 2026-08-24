@@ -1,0 +1,46 @@
+name: Fix8n compact SERVICE recovery patch
+
+on:
+  push:
+    branches:
+      - wifi-aim-fix8n-service-seed-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wifi-aim-fix8n-service-seed-recovery
+          fetch-depth: 0
+
+      - name: Compact Fix8n radius-1 recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp')
+          s = p.read_text()
+          start = s.index('    // Fix8n: recover the scrambler state from all 16 known-zero SERVICE bits.')
+          end_marker = '    if (trace) trace->post_stage = 1;'
+          end = s.index(end_marker, start)
+          old = s[start:end]
+          new = '''    // Fix8n compact radius-1 SERVICE seed recovery.\n    uint8_t raw_state=0u;\n    for (unsigned i=0;i<7u;++i) raw_state|=static_cast<uint8_t>((decoded_[i]&1u)<<(6u-i));\n    uint8_t best_state=0u, service_errors=0xFFu;\n    for (unsigned flip=0u;flip<8u;++flip) {\n        unsigned candidate=raw_state ^ (flip<7u ? (64u>>flip) : 0u);\n        if (!candidate) continue;\n        uint8_t errors=static_cast<uint8_t>(flip<7u);\n        unsigned st=candidate;\n        for (unsigned i=7u;i<16u && errors<=1u;++i) {\n            const unsigned feedback=((st>>6)^(st>>3))&1u;\n            errors+=static_cast<uint8_t>((decoded_[i]&1u)!=feedback);\n            st=((st<<1)&0x7eu)|feedback;\n        }\n        if (errors<service_errors) { service_errors=errors; best_state=static_cast<uint8_t>(candidate); }\n    }\n    if (trace) trace->service_errors=service_errors;\n    if (!best_state || service_errors>1u) return false;\n    unsigned state=best_state;\n    for (unsigned i=7u;i<16u;++i) {\n        const unsigned feedback=((state>>6)^(state>>3))&1u;\n        state=((state<<1)&0x7eu)|feedback;\n    }\n    bytes_.fill(0);\n    const std::size_t max_out_bits=std::min<std::size_t>(data_dec,bytes_.size()*8u);\n    for (std::size_t i=16u;i<max_out_bits;++i) {\n        const unsigned feedback=((state>>6)^(state>>3))&1u;\n        const unsigned bit=feedback^(decoded_[i]&1u);\n        bytes_[i/8u]|=static_cast<uint8_t>(bit<<(i%8u));\n        state=((state<<1)&0x7eu)|feedback;\n    }\n'''
+          p.write_text(s[:start] + new + s[end:])
+          print('Compacted Fix8n recovery:', len(old), '->', len(new), 'source chars')
+          PY
+
+      - name: Commit compact Fix8n source
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET=hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$TARGET"
+          git commit -m 'Fix8n: compact radius-1 SERVICE recovery'
+          git push origin HEAD:wifi-aim-fix8n-service-seed-recovery
