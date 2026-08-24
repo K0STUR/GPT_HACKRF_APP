@@ -39,6 +39,15 @@ class WifiAimProcessor : public BasebandProcessor {
     uint16_t capture_attempts_{0};
     uint16_t decode_successes_{0};
 
+    // Fix8a raw-IQ preamble probe. These counters answer whether captures
+    // resemble 802.11 OFDM/DSSS before changing the actual Wi-Fi decoder.
+    uint8_t probe_o16_hits_{0};
+    uint8_t probe_o64_hits_{0};
+    uint8_t probe_barker_hits_{0};
+    uint8_t probe_o16_peak_{0};
+    uint8_t probe_o64_peak_{0};
+    uint8_t probe_barker_peak_{0};
+
     wifiaim::M4WifiDecoder decoder_{};
 
     // FSKRxPacketMessage carries a pointer to FskPacketData. Keep AP reports
@@ -52,6 +61,8 @@ class WifiAimProcessor : public BasebandProcessor {
     void copy_into_capture(const buffer_c8_t& buffer);
     void finish_capture();
     void reset_detector();
+    void reset_probe_diag();
+    void fill_probe_diag(wifiaim::WireApReport& wire) const;
     void send_diag_state();
     void send_wire_report(const wifiaim::WireApReport& wire, FskPacketData& storage);
 
