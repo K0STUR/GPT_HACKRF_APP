@@ -12,98 +12,110 @@ The old `K0STUR/GPT` repository is reserved for `FORDstecki` only.
 - do not flash matched custom `w_260822` without explicit permission.
 
 ## Proven baseline
-Fix6 solved loader/core ABI on real hardware. Fix7c then proved the M4 capture detector is firing and full captures are completed.
+Fix6 solved the loader/core ABI problem on real stock hardware. Fix7c proved M4 capture triggering and full capture completion. Fix8a proved the captured IQ strongly resembles OFDM Wi-Fi. Fix8b localized the main failure to L-LTF synchronization.
 
-### Fix7c real hardware result
-Exact final screen:
+### Fix8a real hardware result
+`Done 0AP C26 D0 M13`
+`HIT 16/64/B 21/21/0`
+`Q   16/64/B 100/100/53`
 
-`Done 0AP C10 D0`
+Interpretation: 26 captures; 21 looked strongly OFDM-like at both 16- and 64-sample repetition; Barker/DSSS did not dominate; decoder still accepted 0.
 
-Meaning:
-- application launches normally;
-- no HardFault;
-- M4 completed `10` capture attempts;
-- existing Wi-Fi PHY decoder accepted `0` captures;
-- AP list remains empty.
+### Fix8b real hardware result
+`Done 0AP C26 D0 M13`
+`OF L/H/V/P 2/2/2/1`
+`OF R/N/D/M 0/0/0/0`
+`LQ 68 R 8 N 0`
+`HIT 16/64/B 22/20/0`
+`Q   16/64/B 100/100/55`
+`M4 CH: 13`
 
-Therefore loader/ABI is solved and `C=0` detector failure is ruled out for this test. The active question is now whether those captures contain recognizable Wi-Fi preamble structure or merely unrelated/poorly aligned RF energy.
+Interpretation:
+- 20 captures showed strong 64-sample OFDM-like repetition, but only 2 passed the old ideal-template `find_ltf()`;
+- both accepted captures passed SIGNAL hard demod and SIGNAL Viterbi;
+- one passed SIGNAL parity;
+- raw RATE parser value `8` is a valid legacy OFDM code corresponding to 48 Mb/s, which the current decoder intentionally does not support (it supports 6/12/24 Mb/s rate-1/2 modes only);
+- therefore Viterbi and SIGNAL bit ordering can work on real RF; the dominant bottleneck is old L-LTF timing/gating.
 
-## CURRENT CANDIDATE — Fix8a STATIC PASS, READY FOR HARDWARE TEST
-Fix8a deliberately does **not** alter the existing Wi-Fi decoder. It adds an independent raw-IQ capture probe so the next hardware run tells us what kind of signal was actually captured.
+## CURRENT CANDIDATE — Fix8c STATIC PASS, READY FOR HARDWARE TEST
+Fix8c replaces the old hard ideal-template L-LTF gate with repetition-based synchronization:
 
-Probe metrics:
-- `16`: normalized complex repetition at lag 16, looking for legacy OFDM STF-like periodicity;
-- `64`: normalized complex repetition at lag 64, looking for repeated legacy OFDM L-LTF-like structure;
-- `B`: Barker-11 despread correlation, looking for DSSS-like structure.
+`metric = Q64 * (1 - Q16)`
 
-Scores are shown 0–100. Conservative hit thresholds are:
-- OFDM16 >= `55`;
-- OFDM64 >= `60`;
-- Barker >= `70`.
+Rationale:
+- L-LTF contains two repeated 64-sample long training symbols;
+- preceding STF is strongly 16-sample periodic;
+- multipath can severely reduce correlation with an ideal time-domain LTF while preserving repetition between the two received LTF copies;
+- selecting high Q64 and simultaneously low Q16 is therefore more channel-invariant than the old matched-filter threshold.
 
-UI after/during SCAN shows:
-- `HIT 16/64/B a/b/c` — number of captures crossing each threshold;
-- `Q   16/64/B x/y/z` — best score seen during the scan;
-- `M4 CH: n` — last M4 channel acknowledgement;
-- final status `Done xAP C# D# M#`.
+Fix8c keeps the downstream path unchanged:
+- CFO estimate;
+- channel estimate/equalization;
+- SIGNAL demod;
+- deinterleave;
+- Viterbi;
+- RATE/LENGTH parsing;
+- DATA decode;
+- MAC Beacon/Probe parser.
 
-Fix8a telemetry reuses otherwise-unused BSSID bytes only on diagnostic-only packets (`flags bit7 = 0x80`, marker `ssid_len=0xF8`) and does not add any new M0 message-handler type or alter stock-core message ABI.
+Fix8b stage telemetry remains. `LQ` was renamed to `SQ` and now shows Fix8c repetition-sync quality.
 
-### Fix8a CI
-Technical PR: `#7`
+### Fix8c CI
+Technical PR: `#9`
+Run: `32708337425`
+Job: `97374177785`
+Artifact ID: `9513826923`
 
-Run:
-`32699435547`
+Workflow/artifact historical names still contain `fix7b`, but the compiled PPMA was independently checked to contain Fix8c `SQ` and OFDM stage strings.
 
-Job:
-`97347800013`
-
-Artifact ID:
-`9510405146`
-
-The audit harness and artifact filename still contain `fix7b` in their historical names, but the compiled source is current Fix8a from `main`; the downloaded PPMA contains `HIT 16/64/B` and `Q   16/64/B` strings.
-
-### Hardened Fix8a verification
-- size `24800`
-- memory `0x10084324`
-- entry `0x10084379`
+### Hardened Fix8c verification
+- size `25576`
+- memory `0x1008439C`
+- entry `0x100843F1`
 - header `3`
 - version `0x86B64C1D`
 - tag `WAIM`
-- M4 offset `7608`
+- M4 offset `8264`
 - shared core symbols `7086`
 - **core symbol drift `0`**
 - drift references `0`
 - patch count `0`
-- same-address core refs `79`
+- same-address core refs `80`
 - ambiguous `0`
 - unresolved `0`
 - checksum `0x00000000`
 - stock `_Znwj = 0x7ee24`
 - modified `_Znwj = 0x7ee24`
-- PPMA SHA-256 `3fdfd70530a2217888c93c9c11259ecac02ca54371b4998391d31dc006224e9d`
+- SHA-256 `4d573419e816af667cf17166cb0aef2dbb64b19fad4700a09d9321265c19b299`
 - **RESULT `PASS`**
 
-Independent local verification reproduced size, checksum zero and SHA-256 exactly.
+Independent artifact verification reproduced size, checksum zero and SHA-256 exactly.
 
-## Exact next action — REAL HARDWARE TEST Fix8a
+## Exact next action — REAL HARDWARE TEST Fix8c
 1. keep stock Mayhem `n_260808`; do not flash firmware;
-2. remove/move previous WiFi AIM PPMA from `/APPS` so only one entry exists;
-3. copy only the Fix8a `.ppma` into `/APPS`;
+2. remove/move older WiFi AIM PPMA files from `/APPS`;
+3. copy only `WiFiAIM_n260808_fix8c.ppma` into `/APPS`;
 4. do not copy `WAIM.bin` separately;
 5. launch `RX -> WiFi AIM`;
-6. press `SCAN` and let all 13 channels finish;
-7. photograph the final screen or report exactly:
-   - `Done xAP C# D# M#`
-   - `HIT 16/64/B a/b/c`
-   - `Q   16/64/B x/y/z`.
+6. press `SCAN` and let all 13 channels complete;
+7. photograph the full final screen.
 
-Interpretation:
-- OFDM16/64 high or hit counts >0 while `D=0` -> captures look like OFDM Wi-Fi; instrument/fix OFDM decoder next;
-- Barker high or hit count >0 while `D=0` -> captures look like DSSS Wi-Fi; instrument/fix DSSS decoder next;
-- all three scores low -> captures likely are non-Wi-Fi energy or useful preamble still lies outside/alignment of capture; improve detector/pretrigger/capture selection before decoder internals;
-- `D>0` but AP=0 -> report/parser path;
-- AP>0 -> continue directly to SSID/BSSID TARGET/AIM/REF/DELTA.
+Report especially:
+- `Done xAP C# D# M#`
+- `OF L/H/V/P a/b/c/d`
+- `OF R/N/D/M e/f/g/h`
+- `SQ xx R yy N zzzz`
+- `HIT 16/64/B ...`
+- `Q 16/64/B ...`
+
+Primary success criterion for Fix8c:
+- `L` should rise substantially above the Fix8b value `2`, ideally toward the observed OFDM64 hit count around `20`.
+
+Then:
+- if `L` rises but H/V/P stay low -> refine timing/backoff/CFO/channel estimate;
+- if P rises and R reaches supported `11/10/9` -> proceed through LENGTH/DATA;
+- if D rises but M remains 0 -> inspect descrambler/MAC prefix parsing;
+- if AP>0 -> proceed immediately to SSID/BSSID selection, TARGET, AIM, REF/DELTA.
 
 ## Source layout
 Readable current source:
