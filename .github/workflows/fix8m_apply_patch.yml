@@ -24,68 +24,82 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          def replace_once(path, old, new, label):
-              p=Path(path); s=p.read_text()
-              if new in s and old not in s:
-                  print(label, 'already applied'); return
-              n=s.count(old)
-              if n != 1:
-                  raise SystemExit(f'{label}: expected 1 anchor, found {n}')
-              p.write_text(s.replace(old,new,1))
-              print(label, 'applied')
+          def read_lines(path):
+              return Path(path), Path(path).read_text().splitlines()
+          def one_index(lines, needle, label):
+              hits=[i for i,x in enumerate(lines) if needle in x]
+              if len(hits)!=1:
+                  raise SystemExit(f'{label}: {needle!r} hits={len(hits)}; nearby='+repr([x for x in lines if needle.split()[0] in x][:8]))
+              return hits[0]
+          def write(p, lines):
+              p.write_text('\n'.join(lines)+'\n')
 
-          # Internal M4-only trace field. Insert immediately before frame_type;
-          # matching one line avoids whitespace/comment fragility.
-          replace_once(
-              'hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.hpp',
-              '    uint8_t frame_type{0xFFu};',
-              '    // Fix8m: Hamming distance of known-zero SERVICE bits 7..15.\n'
-              '    uint8_t service_errors{0xFFu};\n'
-              '    uint8_t frame_type{0xFFu};',
-              'trace field')
+          # 1) M4 trace field.
+          p, lines=read_lines('hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.hpp')
+          if not any('service_errors' in x for x in lines):
+              i=one_index(lines,'uint8_t frame_type','trace frame_type')
+              indent=lines[i][:len(lines[i])-len(lines[i].lstrip())]
+              lines[i:i]=[
+                  indent+'// Fix8m: Hamming distance of known-zero SERVICE bits 7..15.',
+                  indent+'uint8_t service_errors{0xFFu};']
+              write(p,lines)
+              print('trace field applied')
 
-          # Keep acceptance semantics exactly the same, but count the nine
-          # checkable SERVICE bits and expose the distance before rejecting.
-          replace_once(
-              'hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp',
-              '    bool service_tail_zero = true;',
-              '    uint8_t service_errors = 0u;',
-              'service declaration')
-          replace_once(
-              'hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp',
-              '        if (i < 16u && bit) service_tail_zero = false;',
-              '        if (i < 16u && bit) ++service_errors;',
-              'service counter')
-          replace_once(
-              'hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp',
-              '    if (!service_tail_zero) return false;',
-              '    if (trace) trace->service_errors = service_errors;\n'
-              '    if (service_errors != 0u) return false;',
-              'service export')
+          # 2) Exact same SERVICE accept/reject criterion, with distance exported.
+          p, lines=read_lines('hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp')
+          if not any('trace->service_errors' in x for x in lines):
+              i=one_index(lines,'bool service_tail_zero','service declaration')
+              indent=lines[i][:len(lines[i])-len(lines[i].lstrip())]
+              lines[i]=indent+'uint8_t service_errors = 0u;'
+              i=one_index(lines,'service_tail_zero = false','service counter')
+              indent=lines[i][:len(lines[i])-len(lines[i].lstrip())]
+              lines[i]=indent+'if (i < 16u && bit) ++service_errors;'
+              i=one_index(lines,'if (!service_tail_zero) return false;','service reject')
+              indent=lines[i][:len(lines[i])-len(lines[i].lstrip())]
+              lines[i:i+1]=[
+                  indent+'if (trace) trace->service_errors = service_errors;',
+                  indent+'if (service_errors != 0u) return false;']
+              write(p,lines)
+              print('decoder distance applied')
 
-          # Dedicated scan-state flag so DSSS FC diagnostics cannot overwrite
-          # a SERVICE-distance result and vice versa.
-          replace_once(
-              'hackrf/source_expanded/firmware/baseband/proc_wifi_aim.hpp',
-              '    uint8_t ofdm_last_subtype_{0xFF};',
-              '    uint8_t ofdm_last_subtype_{0xFF};\n'
-              '    bool ofdm_service_seen_{false};',
-              'processor state')
+          # 3) Processor state: pin FC once SERVICE-distance telemetry exists.
+          p, lines=read_lines('hackrf/source_expanded/firmware/baseband/proc_wifi_aim.hpp')
+          if not any('ofdm_service_seen_' in x for x in lines):
+              i=one_index(lines,'uint8_t ofdm_last_subtype_','service state anchor')
+              indent=lines[i][:len(lines[i])-len(lines[i].lstrip())]
+              lines.insert(i+1,indent+'bool ofdm_service_seen_{false};')
+              write(p,lines)
+              print('processor state applied')
 
-          replace_once(
-              'hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp',
-              '    ofdm_last_subtype_ = 0xFFu;\n    dsss_attempts_ = 0;',
-              '    ofdm_last_subtype_ = 0xFFu;\n'
-              '    ofdm_service_seen_ = false;\n'
-              '    dsss_attempts_ = 0;',
-              'processor reset')
+          p, lines=read_lines('hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp')
+          if not any('ofdm_service_seen_ = false' in x for x in lines):
+              hits=[i for i,x in enumerate(lines) if 'ofdm_last_subtype_ = 0xFFu' in x]
+              if len(hits)!=1: raise SystemExit(f'reset anchor hits={len(hits)}')
+              i=hits[0]; indent=lines[i][:len(lines[i])-len(lines[i].lstrip())]
+              lines.insert(i+1,indent+'ofdm_service_seen_ = false;')
 
-          old='''    if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;\n    if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;'''
-          new='''    // Fix8m: after DATA Viterbi, FC is min SERVICE errors / raw RATE.\n    // Before the first DATA candidate, preserve the existing DSSS FC diagnostics.\n    if (ofdm_trace.stage >= 7u && ofdm_trace.service_errors != 0xFFu) {\n        if (!ofdm_service_seen_ || ofdm_trace.service_errors < ofdm_last_type_) {\n            ofdm_last_type_ = ofdm_trace.service_errors;\n            ofdm_last_subtype_ = ofdm_trace.rate_raw;\n        }\n        ofdm_service_seen_ = true;\n    } else if (!ofdm_service_seen_) {\n        if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;\n        if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;\n    }'''
-          replace_once(
-              'hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp',
-              old,new,'processor FC telemetry')
-
+          if not any('Fix8m: after DATA Viterbi' in x for x in lines):
+              a=[i for i,x in enumerate(lines) if 'if (ofdm_trace.frame_type !=' in x]
+              b=[i for i,x in enumerate(lines) if 'if (ofdm_trace.frame_subtype !=' in x]
+              if len(a)!=1 or len(b)!=1 or b[0]!=a[0]+1:
+                  raise SystemExit(f'FC anchors type={a} subtype={b}')
+              i=a[0]; indent=lines[i][:len(lines[i])-len(lines[i].lstrip())]
+              block=[
+                  indent+'// Fix8m: after DATA Viterbi, FC is min SERVICE errors / raw RATE.',
+                  indent+'// Before first DATA candidate, retain older DSSS FC diagnostics.',
+                  indent+'if (ofdm_trace.stage >= 7u && ofdm_trace.service_errors != 0xFFu) {',
+                  indent+'    if (!ofdm_service_seen_ || ofdm_trace.service_errors < ofdm_last_type_) {',
+                  indent+'        ofdm_last_type_ = ofdm_trace.service_errors;',
+                  indent+'        ofdm_last_subtype_ = ofdm_trace.rate_raw;',
+                  indent+'    }',
+                  indent+'    ofdm_service_seen_ = true;',
+                  indent+'} else if (!ofdm_service_seen_) {',
+                  indent+'    if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;',
+                  indent+'    if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;',
+                  indent+'}']
+              lines[i:i+2]=block
+          write(p,lines)
+          print('processor telemetry applied')
           print('Fix8m source patch complete')
           PY
 
