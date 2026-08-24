@@ -1,0 +1,6 @@
+WiFi AIM n_260808 Fix8c
+RESULT=PASS
+Run=32708337425
+Job=97374177785
+Artifact=9513826923
+Hardware test pending.
