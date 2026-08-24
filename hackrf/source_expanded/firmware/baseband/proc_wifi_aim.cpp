@@ -64,6 +64,11 @@ void WifiAimProcessor::reset_probe_diag() {
     ofdm_ltf_peak_ = 0;
     ofdm_last_rate_ = 0xFFu;
     ofdm_last_length_ = 0;
+    ofdm_post_hits_.fill(0);
+    ofdm_last_type_ = 0xFFu;
+    ofdm_last_subtype_ = 0xFFu;
+    dsss_attempts_ = 0;
+    dsss_successes_ = 0;
 }
 
 void WifiAimProcessor::fill_probe_diag(wifiaim::WireApReport& wire) const {
@@ -83,6 +88,12 @@ void WifiAimProcessor::fill_probe_diag(wifiaim::WireApReport& wire) const {
     wire.ssid[9] = static_cast<char>(ofdm_last_rate_);
     wire.ssid[10] = static_cast<char>(ofdm_last_length_ & 0xFFu);
     wire.ssid[11] = static_cast<char>((ofdm_last_length_ >> 8) & 0xFFu);
+    for (std::size_t i = 0; i < ofdm_post_hits_.size(); ++i)
+        wire.ssid[12 + i] = static_cast<char>(ofdm_post_hits_[i]);
+    wire.ssid[17] = static_cast<char>(ofdm_last_type_);
+    wire.ssid[18] = static_cast<char>(ofdm_last_subtype_);
+    wire.ssid[19] = static_cast<char>(dsss_attempts_);
+    wire.ssid[20] = static_cast<char>(dsss_successes_);
 }
 
 void WifiAimProcessor::send_diag_state() {
@@ -123,6 +134,12 @@ void WifiAimProcessor::finish_capture() {
     ofdm_ltf_peak_ = std::max(ofdm_ltf_peak_, ofdm_trace.ltf_score);
     if (ofdm_trace.rate_raw != 0xFFu) ofdm_last_rate_ = ofdm_trace.rate_raw;
     if (ofdm_trace.length) ofdm_last_length_ = ofdm_trace.length;
+    for (uint8_t i = 0; i < ofdm_trace.post_stage && i < ofdm_post_hits_.size(); ++i)
+        if (ofdm_post_hits_[i] != 0xFFu) ++ofdm_post_hits_[i];
+    if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;
+    if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;
+    if (ofdm_trace.dsss_attempted && dsss_attempts_ != 0xFFu) ++dsss_attempts_;
+    if (ofdm_trace.dsss_success && dsss_successes_ != 0xFFu) ++dsss_successes_;
     if (decoded) ++decode_successes_;
 
     wifiaim::WireApReport wire{};

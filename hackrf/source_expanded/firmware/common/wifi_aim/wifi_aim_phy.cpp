@@ -644,18 +644,42 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     bytes_.fill(0);
     bytes_[0]=static_cast<uint8_t>(state);
     const std::size_t max_out_bits=std::min<std::size_t>(data_dec,bytes_.size()*8u);
+    bool service_tail_zero = true;
     for (std::size_t i=7;i<max_out_bits;++i) {
         const unsigned feedback=((state&64u)?1u:0u)^((state&8u)?1u:0u);
         const unsigned bit=feedback^(decoded_[i]&1u);
+        if (i < 16u && bit) service_tail_zero = false;
         bytes_[i/8u]|=static_cast<uint8_t>(bit<<(i%8u));
         state=((state<<1)&0x7e)|feedback;
     }
+    if (!service_tail_zero) return false;
+    if (trace) trace->post_stage = 1;
+
     const std::size_t produced=(max_out_bits/8u>2u)?(max_out_bits/8u-2u):0u;
     const std::size_t prefix_n=std::min<std::size_t>({produced,want_bytes,kMaxPrefixBytes});
     if (prefix_n<36) return false;
+
+    const uint8_t* frame = bytes_.data()+2;
+    const uint16_t fc = le16(frame);
+    if ((fc & 0x0003u) != 0u) return false;
+    if (trace) trace->post_stage = 2;
+    const uint8_t frame_type = static_cast<uint8_t>((fc >> 2) & 3u);
+    const uint8_t frame_subtype = static_cast<uint8_t>((fc >> 4) & 15u);
+    if (trace) {
+        trace->frame_type = frame_type;
+        trace->frame_subtype = frame_subtype;
+    }
+    if (frame_type != 0u) return false;
+    if (trace) trace->post_stage = 3;
+    if (frame_subtype != 8u && frame_subtype != 5u) return false;
+    if (trace) trace->post_stage = 4;
+
     M4ApReport candidate{};
-    if (!parse_prefix_fixed(bytes_.data()+2,prefix_n,candidate)) return false;
-    if (trace) trace->stage = 8;
+    if (!parse_prefix_fixed(frame,prefix_n,candidate)) return false;
+    if (trace) {
+        trace->post_stage = 5;
+        trace->stage = 8;
+    }
 
     // Relative packet level from the L-LTF capture. This is not calibrated dBm;
     // it is intentionally stable for delta/aim measurements at fixed gain.
