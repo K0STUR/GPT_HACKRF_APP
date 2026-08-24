@@ -31,6 +31,8 @@ struct M4OfdmTrace {
     // 1=remaining SERVICE bits descramble to zero, 2=802.11 protocol version 0,
     // 3=management frame, 4=Beacon/Probe Response, 5=SSID IE parsed.
     uint8_t post_stage{0};
+    // Fix8m: Hamming distance of known-zero SERVICE bits 7..15.
+    uint8_t service_errors{0xFFu};
     uint8_t frame_type{0xFF};
     uint8_t frame_subtype{0xFF};
     bool dsss_attempted{false};

@@ -58,6 +58,7 @@ class WifiAimProcessor : public BasebandProcessor {
     std::array<uint8_t,5> ofdm_post_hits_{};
     uint8_t ofdm_last_type_{0xFF};
     uint8_t ofdm_last_subtype_{0xFF};
+    bool ofdm_service_seen_{false};
     uint8_t dsss_attempts_{0};
     uint8_t dsss_successes_{0};
 

@@ -67,6 +67,7 @@ void WifiAimProcessor::reset_probe_diag() {
     ofdm_post_hits_.fill(0);
     ofdm_last_type_ = 0xFFu;
     ofdm_last_subtype_ = 0xFFu;
+    ofdm_service_seen_ = false;
     dsss_attempts_ = 0;
     dsss_successes_ = 0;
 }
@@ -143,8 +144,18 @@ void WifiAimProcessor::finish_capture() {
     }
     for (uint8_t i = 0; i < ofdm_trace.post_stage && i < ofdm_post_hits_.size(); ++i)
         if (ofdm_post_hits_[i] != 0xFFu) ++ofdm_post_hits_[i];
-    if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;
-    if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;
+    // Fix8m: after DATA Viterbi, FC is min SERVICE errors / raw RATE.
+    // Before first DATA candidate, retain older DSSS FC diagnostics.
+    if (ofdm_trace.stage >= 7u && ofdm_trace.service_errors != 0xFFu) {
+        if (!ofdm_service_seen_ || ofdm_trace.service_errors < ofdm_last_type_) {
+            ofdm_last_type_ = ofdm_trace.service_errors;
+            ofdm_last_subtype_ = ofdm_trace.rate_raw;
+        }
+        ofdm_service_seen_ = true;
+    } else if (!ofdm_service_seen_) {
+        if (ofdm_trace.frame_type != 0xFFu) ofdm_last_type_ = ofdm_trace.frame_type;
+        if (ofdm_trace.frame_subtype != 0xFFu) ofdm_last_subtype_ = ofdm_trace.frame_subtype;
+    }
     if (ofdm_trace.dsss_attempted && dsss_attempts_ != 0xFFu) ++dsss_attempts_;
     if (ofdm_trace.dsss_success && dsss_successes_ != 0xFFu) ++dsss_successes_;
     if (decoded) ++decode_successes_;

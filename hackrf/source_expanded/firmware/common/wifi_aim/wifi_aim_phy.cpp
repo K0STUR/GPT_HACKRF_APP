@@ -600,15 +600,16 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     bytes_.fill(0);
     bytes_[0]=static_cast<uint8_t>(state);
     const std::size_t max_out_bits=std::min<std::size_t>(data_dec,bytes_.size()*8u);
-    bool service_tail_zero = true;
+    uint8_t service_errors = 0u;
     for (std::size_t i=7;i<max_out_bits;++i) {
         const unsigned feedback=((state&64u)?1u:0u)^((state&8u)?1u:0u);
         const unsigned bit=feedback^(decoded_[i]&1u);
-        if (i < 16u && bit) service_tail_zero = false;
+        if (i < 16u && bit) ++service_errors;
         bytes_[i/8u]|=static_cast<uint8_t>(bit<<(i%8u));
         state=((state<<1)&0x7e)|feedback;
     }
-    if (!service_tail_zero) return false;
+    if (trace) trace->service_errors = service_errors;
+    if (service_errors != 0u) return false;
     if (trace) trace->post_stage = 1;
 
     const std::size_t produced=(max_out_bits/8u>2u)?(max_out_bits/8u-2u):0u;
