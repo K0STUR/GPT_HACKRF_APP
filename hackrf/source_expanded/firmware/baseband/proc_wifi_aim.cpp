@@ -128,7 +128,9 @@ void WifiAimProcessor::finish_capture() {
 
     wifiaim::M4ApReport ap{};
     wifiaim::M4OfdmTrace ofdm_trace{};
-    const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap, &ofdm_trace);
+    // Fix8g: reuse the cheap raw Barker probe as an admission signal for the
+    // expensive DSSS fallback. The decoder still performs final validation.
+    const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap, &ofdm_trace, probe.barker_score);
     for (uint8_t i = 0; i < ofdm_trace.stage && i < ofdm_stage_hits_.size(); ++i)
         if (ofdm_stage_hits_[i] != 0xFFu) ++ofdm_stage_hits_[i];
     ofdm_ltf_peak_ = std::max(ofdm_ltf_peak_, ofdm_trace.ltf_score);
