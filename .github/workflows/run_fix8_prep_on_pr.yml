@@ -1,0 +1,54 @@
+name: Run WiFi AIM Fix8 preparer on PR
+
+on:
+  pull_request:
+    paths:
+      - 'hackrf/FIX8_PR_TRIGGER.txt'
+      - '.github/workflows/run_fix8_prep_on_pr.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Extract and run Fix8 patcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          y=Path('.github/workflows/prepare_wifi_aim_fix8.yml').read_text().splitlines()
+          start=None; end=None
+          for i,line in enumerate(y):
+              if "python3 - <<'PY'" in line:
+                  start=i+1
+                  continue
+              if start is not None and line.strip()=='PY':
+                  end=i
+                  break
+          assert start is not None and end is not None
+          out=[]
+          for line in y[start:end]:
+              out.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/fix8_patch.py').write_text('\n'.join(out)+'\n')
+          PY
+          python3 /tmp/fix8_patch.py
+
+      - name: Commit prepared Fix8 sources to PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f hackrf/FIX8_PR_TRIGGER.txt hackrf/FIX8_PREP_TRIGGER.txt
+          rm -f .github/workflows/prepare_wifi_aim_fix8.yml .github/workflows/run_fix8_prep_on_pr.yml
+          git config user.name K0STUR
+          git config user.email 74721566+K0STUR@users.noreply.github.com
+          git add -A
+          git commit -m 'WiFi AIM Fix8: add OFDM DSSS stage telemetry'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
