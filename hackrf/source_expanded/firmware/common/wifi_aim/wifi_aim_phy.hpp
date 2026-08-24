@@ -88,22 +88,18 @@ class M4OfdmWifiDecoder {
 };
 
 // Combined decoder used by the app. OFDM is attempted first because its LTF
-// gives a cheap, highly selective rejection; DSSS is the fallback.
+// gives a cheap, highly selective rejection; DSSS is normally the fallback.
 class M4WifiDecoder {
    public:
     bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4OfdmTrace* trace = nullptr) {
         if (ofdm_.decode(samples, sample_count, out, trace)) return true;
 
-        // Fix8e throughput guard: a parity-valid legacy OFDM SIGNAL means this
-        // capture is already convincingly OFDM. Running the exhaustive DSSS
-        // phase/offset search after that is wasted CPU and can make the M4 miss
-        // later DMA blocks. Preserve DSSS fallback for captures that did not
-        // reach OFDM parity, including real 1 Mbit/s beacons.
-        if (trace && trace->stage >= 4u) return false;
-        if (trace) trace->dsss_attempted = true;
-        const bool ok = dsss_.decode(samples, sample_count, out);
-        if (trace) trace->dsss_success = ok;
-        return ok;
+        // Fix8f diagnostic isolation: temporarily disable DSSS completely.
+        // The sole purpose of this branch is to test whether exhaustive DSSS
+        // processing is responsible for the Fix8e C20+ -> C1 capture collapse.
+        // Expected hardware signature if DSSS starvation is the cause:
+        // capture throughput returns near Fix8d territory while DS A/S stays 0/0.
+        return false;
     }
    private:
     M4OfdmWifiDecoder ofdm_{};
