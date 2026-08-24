@@ -6,84 +6,68 @@ Canonical repository: **`K0STUR/GPT_HACKRF_APP`**. The old `K0STUR/GPT` repo is 
 
 ## Read first
 1. `PROJECT_STATUS.md`
-2. `TEST_LOG.md`
-3. `NEXT_CHAT_PROMPT.md`
-4. `HANDOVER_MASTER.md`
-5. `WIFI_AIM_SPEC.md`
-6. `source_expanded/`
-7. `build_results/wifi_aim_full_n260808_fix8a/`
+2. `FIX8E_HARDWARE_RESULT.md`
+3. `TEST_LOG.md`
+4. `NEXT_CHAT_PROMPT.md`
+5. `HANDOVER_MASTER.md`
+6. `WIFI_AIM_SPEC.md`
+7. `source_expanded/`
 
 ## Current one-line status
-**Fix7c is hardware-tested on stock `n_260808` and returned `Done 0AP C10 D0`: M4 capture is working, but the current Wi-Fi PHY decoder accepts none of the captured bursts. Fix8a keeps the decoder unchanged and adds an independent raw-IQ preamble probe for OFDM 16-sample repetition, OFDM 64-sample repetition and Barker-11 DSSS. Fix8a passed the full hardened zero-drift audit and is the current hardware-test candidate.**
+**Fix8d is the last functional hardware baseline: 2 of 5 scans found 1 AP and typical scans completed ~20–28 captures. Fix8e is static/ABI PASS but on real hardware regressed to 0 AP in 4/4 scans and one representative full scan completed only `C1`; the next chat must investigate M4 capture-throughput starvation before doing any deeper OFDM/MAC work.**
 
-## Hardware result that drives the next step
-Fix7c real device:
-
-`Done 0AP C10 D0`
-
-This rules out the earlier `C=0` detector failure. Ten capture attempts completed, zero full decodes succeeded.
-
-## Current candidate — Fix8a
-Device target remains stock Mayhem `n_260808`:
+## Device target
+Keep stock Mayhem `n_260808`:
 - tag `nightly-tag-2026-08-08`
 - upstream commit `367eaf54c0f51f62448d9f2d9585fd3629f6b770`
 
-Fix8a retains Fix7c's:
-- 2048 IQ pretrigger;
-- safer M4 initialization order;
-- lower capture threshold;
-- 1000 ms/channel dwell;
-- separate AP/diagnostic FSK packet backing stores;
-- M/C/D telemetry over existing `FSKPacket` path;
-- no new M0 HunterTrigger handler.
+Do not flash matched custom `w_260822` without explicit permission.
 
-Fix8a adds a decoder-independent raw capture probe. UI displays:
-- `HIT 16/64/B a/b/c`
-- `Q   16/64/B x/y/z`
-- `M4 CH: n`
-- final `Done xAP C# D# M#`.
+## Proven milestones
+- Fix6: stock loader/core ABI solved on hardware; app launches without HardFault.
+- Fix7c: capture path works (`Done 0AP C10 D0`).
+- Fix8a: raw capture strongly OFDM-like (`Q16/Q64 100/100`).
+- Fix8b: old ideal-template LTF sync accepts only 2/26 captures.
+- Fix8c: repetition LTF sync fixed that bottleneck (`L/H/V = 24/24/24`).
+- Fix8d: full legacy OFDM 6/9/12/18/24/36/48/54 added; real hardware reaches DATA Viterbi and intermittently finds AP (`1AP` in 2/5 scans).
+- Fix8e: added post-DATA/DSSS telemetry and throughput guard, but hardware capture count collapsed to ~`C1` in the shown run; 0 AP in 4/4 scans.
 
-Metric meaning:
-- `16`: OFDM STF-like repetition, hit threshold 55;
-- `64`: OFDM L-LTF-like repetition, hit threshold 60;
-- `B`: Barker-11 DSSS-like correlation, hit threshold 70;
-- `Q`: best score 0-100 during scan;
-- `HIT`: number of captures crossing threshold.
+## Critical current evidence
+Fix8d representative successful scan:
 
-### Static verification
-- CI run `32699435547`
-- job `97347800013`
-- artifact ID `9510405146`
-- size `24800`
-- version `0x86B64C1D`
-- tag `WAIM`
-- M4 offset `7608`
-- core drift `0`
-- drift refs `0`
-- patches `0`
-- ambiguous `0`
-- unresolved `0`
-- checksum `0`
-- stock/mod `_Znwj = 0x7ee24`
-- SHA-256 `3fdfd70530a2217888c93c9c11259ecac02ca54371b4998391d31dc006224e9d`
-- **RESULT `PASS`**
+`Done 1AP C28 D1 M13`
 
-Downloaded artifact was independently verified: size, 32-bit word checksum and SHA match, and Fix8a UI strings are present in the PPMA.
+`OF L/H/V/P 24/24/24/11`
 
-## Next test
-Do not flash firmware. Remove/move older WiFi AIM PPMA files from SD `/APPS` and copy **only** the Fix8a `.ppma` there. `WAIM.bin` is embedded.
+`OF R/N/D/M 4/2/2/0`
 
-Launch `RX -> WiFi AIM`, press SCAN and let all 13 channels complete. Photograph/report:
-- `Done xAP C# D# M#`
-- `HIT 16/64/B a/b/c`
-- `Q   16/64/B x/y/z`.
+Fix8e representative scan:
 
-Interpretation:
-- high 16/64 scores or hits + D0 -> captured signal looks OFDM-like; debug OFDM PHY next;
-- high Barker score/hits + D0 -> captured signal looks DSSS-like; debug DSSS PHY next;
-- all scores low -> captures likely are non-Wi-Fi or useful preamble alignment is still wrong; improve capture selection/pretrigger before decoder internals;
-- D>0 AP=0 -> report/parser path;
-- AP>0 -> proceed to SSID/BSSID selection, TARGET, AIM, REF/DELTA REF.
+`Done 0AP C1 D0 M13`
+
+`OF L/H/V/P 0/0/0/0`
+
+`DS A/S 1/0 FC 255/255`
+
+`HIT 16/64/B 1/1/0`
+
+`Q 16/64/B 96/96/32`
+
+The phone sees at least 5 nearby Wi-Fi networks in the same location, so the Fix8e `0AP` result is not due to an empty RF environment.
+
+## Repository state
+- `main`: keep as the **Fix8d functional baseline** plus handover docs.
+- Fix8e source: branch **`wifi-aim-fix8e-prep`**, technical PR `#11`.
+- Fix8e hardened run: `32723430968`, job `97419505883`, artifact `9519205449`.
+- Fix8e static result: core drift 0, checksum 0, SHA-256 `631c9bfe66f2b4d69405c5bad5055a28e48e61069ec5cb04b6dec3a02c63f3ee`, RESULT PASS.
+- **Do not blindly merge Fix8e into main** until the capture-throughput regression is understood.
+
+## Exact next step
+Do not change loader/ABI, repetition LTF sync, or full OFDM RATE support.
+
+The next chat should first diff Fix8d against `wifi-aim-fix8e-prep` and determine why the M4 now completes only ~1 capture per scan. Leading hypothesis: after the first capture fails OFDM parity, Fix8e still runs the exhaustive DSSS fallback and may occupy the M4 for a large fraction of the 13-second scan.
+
+Primary next-code objective (for the new chat, not this one): gate/limit/time-slice DSSS during broad SCAN so capture throughput returns to Fix8d territory (`C20+`). Only after that should `P S/F/G/B/I` post-DATA telemetry be used to continue OFDM MAC diagnosis.
 
 ## Goal
 `SCAN -> choose SSID/BSSID -> TARGET -> AIM -> REF -> DELTA REF`
