@@ -107,18 +107,31 @@ class M4WifiDecoder {
         // permanently exclude a real DSSS AP because of probe-score variance.
         const uint8_t seq = ++dsss_gate_seq_;
         bool allow_dsss = false;
+        uint8_t dsss_gate_tier = 0u;
         if (barker_score >= 70u) {
             allow_dsss = true;
+            dsss_gate_tier = 3u;
         } else if (barker_score >= 55u) {
             allow_dsss = (seq & 0x01u) == 0u;      // 1/2
+            dsss_gate_tier = 2u;
         } else if (barker_score >= 45u) {
             allow_dsss = (seq & 0x03u) == 0u;      // 1/4
+            dsss_gate_tier = 1u;
         } else {
             allow_dsss = (seq & 0x0Fu) == 0u;      // 1/16 safety sample
+            dsss_gate_tier = 0u;
         }
         if (!allow_dsss) return false;
 
-        if (trace) trace->dsss_attempted = true;
+        if (trace) {
+            trace->dsss_attempted = true;
+            // Fix8h diagnostic reuse: DSSS is only entered for OFDM stage < 4,
+            // so FC type/subtype have not been populated by the OFDM MAC path.
+            // Export the Barker score and admission tier through the existing
+            // FC telemetry slots without changing WireApReport or stock ABI.
+            trace->frame_type = barker_score;
+            trace->frame_subtype = dsss_gate_tier;
+        }
         const bool ok = dsss_.decode(samples, sample_count, out);
         if (trace) trace->dsss_success = ok;
         return ok;
