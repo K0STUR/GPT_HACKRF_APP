@@ -1,0 +1,277 @@
+name: Prepare WiFi AIM Fix8 PHY diagnostics
+
+on:
+  push:
+    paths:
+      - 'hackrf/FIX8_PREP_TRIGGER.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch Fix8 stage telemetry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def rep(path, old, new, n=1):
+              p=Path(path); s=p.read_text()
+              if s.count(old) < n:
+                  raise SystemExit(f'anchor missing in {path}: {old[:80]!r}')
+              s=s.replace(old,new,n)
+              p.write_text(s)
+
+          phyh='hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.hpp'
+          phyc='hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp'
+          wire='hackrf/source_expanded/firmware/common/wifi_aim_wire.hpp'
+          proch='hackrf/source_expanded/firmware/baseband/proc_wifi_aim.hpp'
+          procc='hackrf/source_expanded/firmware/baseband/proc_wifi_aim.cpp'
+          uih='hackrf/source_expanded/firmware/application/external/wifi_aim/ui_wifi_aim.hpp'
+          uic='hackrf/source_expanded/firmware/application/external/wifi_aim/ui_wifi_aim.cpp'
+
+          # ---- PHY trace API ----
+          rep(phyh,
+              'struct IQ8 { int8_t i{0}; int8_t q{0}; };\n\nstruct M4ApReport {',
+              '''struct IQ8 { int8_t i{0}; int8_t q{0}; };
+
+// Per-capture PHY progress. A bit is set only after that stage succeeds.
+// The processor converts these bits to cumulative counters for the M0 UI.
+struct M4DecodeTrace {
+    enum : uint8_t {
+        OFDM_LTF    = 1u << 0,
+        OFDM_SIGNAL = 1u << 1,
+        OFDM_DATA   = 1u << 2,
+        OFDM_MAC    = 1u << 3,
+        DSSS_BITS   = 1u << 0,
+        DSSS_SFD    = 1u << 1,
+        DSSS_PLCP   = 1u << 2,
+        DSSS_MAC    = 1u << 3,
+    };
+    uint8_t ofdm{0};
+    uint8_t dsss{0};
+};
+
+struct M4ApReport {''')
+          rep(phyh,
+              'bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out);',
+              'bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4DecodeTrace* trace = nullptr);',2)
+          rep(phyh,
+              '''    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out) {
+        if (ofdm_.decode(samples, sample_count, out)) return true;
+        return dsss_.decode(samples, sample_count, out);
+    }''',
+              '''    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out, M4DecodeTrace* trace = nullptr) {
+        if (trace) *trace = {};
+        if (ofdm_.decode(samples, sample_count, out, trace)) return true;
+        return dsss_.decode(samples, sample_count, out, trace);
+    }''')
+
+          # DSSS checkpoints.
+          rep(phyc,
+              'bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out) {',
+              'bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out, M4DecodeTrace* trace) {')
+          rep(phyc,
+              '            if (nb<256) continue;\n            for (std::size_t n=0;n<nb;++n)',
+              '            if (nb<256) continue;\n            if (trace) trace->dsss |= M4DecodeTrace::DSSS_BITS;\n            for (std::size_t n=0;n<nb;++n)')
+          rep(phyc,
+              '                if (bits16(plain_.data(),p,16)!=0xF3A0) continue;\n                const std::size_t hdr=p+16;',
+              '                if (bits16(plain_.data(),p,16)!=0xF3A0) continue;\n                if (trace) trace->dsss |= M4DecodeTrace::DSSS_SFD;\n                const std::size_t hdr=p+16;')
+          rep(phyc,
+              '                if (expected<36) continue;\n                const std::size_t payload=hdr+48;',
+              '                if (expected<36) continue;\n                if (trace) trace->dsss |= M4DecodeTrace::DSSS_PLCP;\n                const std::size_t payload=hdr+48;')
+          rep(phyc,
+              '                if (!parse_prefix_fixed(prefix_.data(),nbytes,candidate)) continue;\n                const float avg=',
+              '                if (!parse_prefix_fixed(prefix_.data(),nbytes,candidate)) continue;\n                if (trace) trace->dsss |= M4DecodeTrace::DSSS_MAC;\n                const float avg=')
+
+          # OFDM checkpoints.
+          rep(phyc,
+              'bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out) {',
+              'bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out, M4DecodeTrace* trace) {')
+          rep(phyc,
+              '    if (!find_ltf(s,count,L,cfo_step_r,cfo_step_i,ltf_score)) return false;\n    if (L+224+64>count) return false;',
+              '    if (!find_ltf(s,count,L,cfo_step_r,cfo_step_i,ltf_score)) return false;\n    if (trace) trace->ofdm |= M4DecodeTrace::OFDM_LTF;\n    if (L+224+64>count) return false;')
+          rep(phyc,
+              '    if (psdu_len<36 || psdu_len>2304) return false;\n\n    const std::size_t want_bytes=',
+              '    if (psdu_len<36 || psdu_len>2304) return false;\n    if (trace) trace->ofdm |= M4DecodeTrace::OFDM_SIGNAL;\n\n    const std::size_t want_bytes=')
+          rep(phyc,
+              '    if (coded_n<static_cast<std::size_t>(n_cbps) || !viterbi(coded_.data(),coded_n,decoded_.data(),data_dec) || data_dec<16+36*8) return false;\n\n    // IEEE 802.11 descrambler:',
+              '    if (coded_n<static_cast<std::size_t>(n_cbps) || !viterbi(coded_.data(),coded_n,decoded_.data(),data_dec) || data_dec<16+36*8) return false;\n    if (trace) trace->ofdm |= M4DecodeTrace::OFDM_DATA;\n\n    // IEEE 802.11 descrambler:')
+          rep(phyc,
+              '    if (!parse_prefix_fixed(bytes_.data()+2,prefix_n,candidate)) return false;\n\n    // Relative packet level',
+              '    if (!parse_prefix_fixed(bytes_.data()+2,prefix_n,candidate)) return false;\n    if (trace) trace->ofdm |= M4DecodeTrace::OFDM_MAC;\n\n    // Relative packet level')
+
+          # ---- Wire counters: 8 extra bytes, still <=64 bytes total ----
+          rep(wire,
+              '    uint16_t decode_total{0};\n};',
+              '''    uint16_t decode_total{0};
+    uint8_t ofdm_ltf_total{0};
+    uint8_t ofdm_signal_total{0};
+    uint8_t ofdm_data_total{0};
+    uint8_t ofdm_mac_total{0};
+    uint8_t dsss_bits_total{0};
+    uint8_t dsss_sfd_total{0};
+    uint8_t dsss_plcp_total{0};
+    uint8_t dsss_mac_total{0};
+};''')
+
+          # ---- M4 cumulative stage counters ----
+          rep(proch,
+              '    uint16_t decode_successes_{0};\n\n    wifiaim::M4WifiDecoder decoder_{};',
+              '''    uint16_t decode_successes_{0};
+    uint8_t ofdm_ltf_total_{0};
+    uint8_t ofdm_signal_total_{0};
+    uint8_t ofdm_data_total_{0};
+    uint8_t ofdm_mac_total_{0};
+    uint8_t dsss_bits_total_{0};
+    uint8_t dsss_sfd_total_{0};
+    uint8_t dsss_plcp_total_{0};
+    uint8_t dsss_mac_total_{0};
+
+    wifiaim::M4WifiDecoder decoder_{};''')
+          rep(proch,
+              '    void send_diag_state();\n    void send_wire_report',
+              '    void send_diag_state();\n    void fill_stage_totals(wifiaim::WireApReport& wire) const;\n    void send_wire_report')
+          rep(procc,
+              'void WifiAimProcessor::send_diag_state() {',
+              '''void WifiAimProcessor::fill_stage_totals(wifiaim::WireApReport& wire) const {
+    wire.ofdm_ltf_total = ofdm_ltf_total_;
+    wire.ofdm_signal_total = ofdm_signal_total_;
+    wire.ofdm_data_total = ofdm_data_total_;
+    wire.ofdm_mac_total = ofdm_mac_total_;
+    wire.dsss_bits_total = dsss_bits_total_;
+    wire.dsss_sfd_total = dsss_sfd_total_;
+    wire.dsss_plcp_total = dsss_plcp_total_;
+    wire.dsss_mac_total = dsss_mac_total_;
+}
+
+void WifiAimProcessor::send_diag_state() {''')
+          rep(procc,
+              '    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);\n    send_wire_report(wire, diag_packet_);',
+              '    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);\n    fill_stage_totals(wire);\n    send_wire_report(wire, diag_packet_);',1)
+          rep(procc,
+              '''    wifiaim::M4ApReport ap{};
+    const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap);
+    if (decoded) ++decode_successes_;
+
+    wifiaim::WireApReport wire{};''',
+              '''    wifiaim::M4ApReport ap{};
+    wifiaim::M4DecodeTrace trace{};
+    const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap, &trace);
+    if (trace.ofdm & wifiaim::M4DecodeTrace::OFDM_LTF) ++ofdm_ltf_total_;
+    if (trace.ofdm & wifiaim::M4DecodeTrace::OFDM_SIGNAL) ++ofdm_signal_total_;
+    if (trace.ofdm & wifiaim::M4DecodeTrace::OFDM_DATA) ++ofdm_data_total_;
+    if (trace.ofdm & wifiaim::M4DecodeTrace::OFDM_MAC) ++ofdm_mac_total_;
+    if (trace.dsss & wifiaim::M4DecodeTrace::DSSS_BITS) ++dsss_bits_total_;
+    if (trace.dsss & wifiaim::M4DecodeTrace::DSSS_SFD) ++dsss_sfd_total_;
+    if (trace.dsss & wifiaim::M4DecodeTrace::DSSS_PLCP) ++dsss_plcp_total_;
+    if (trace.dsss & wifiaim::M4DecodeTrace::DSSS_MAC) ++dsss_mac_total_;
+    if (decoded) ++decode_successes_;
+
+    wifiaim::WireApReport wire{};''')
+          rep(procc,
+              '    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);\n\n    if (decoded) {',
+              '    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);\n    fill_stage_totals(wire);\n\n    if (decoded) {',1)
+
+          # ---- M0 stage totals/baselines ----
+          rep(uih,
+              '    uint8_t diag_ack_channel_{0};\n\n    std::array<int16_t,16> target_levels_{};',
+              '''    uint8_t diag_ack_channel_{0};
+    std::array<uint8_t,8> diag_stage_total_{};
+    std::array<uint8_t,8> scan_stage_base_{};
+
+    std::array<int16_t,16> target_levels_{};''')
+          rep(uih,
+              '    void update_scan_status();\n    uint16_t scan_capture_delta() const;',
+              '    void update_scan_status();\n    void update_phy_diag_display();\n    uint8_t stage_delta(std::size_t i) const;\n    uint16_t scan_capture_delta() const;')
+
+          rep(uic,
+              '''void WifiAimView::update_scan_status() {
+    if (!scanning_) return;
+    text_status.set("S " + to_string_dec_uint(scan_channel_) + "/13 C" +
+                    to_string_dec_uint(scan_capture_delta()) + " D" +
+                    to_string_dec_uint(scan_decode_delta()) + " M" +
+                    to_string_dec_uint(diag_ack_channel_));
+}''',
+              '''uint8_t WifiAimView::stage_delta(std::size_t i) const {
+    return static_cast<uint8_t>(diag_stage_total_[i] - scan_stage_base_[i]);
+}
+
+void WifiAimView::update_phy_diag_display() {
+    text_level.set("OF L/S/D/M " + to_string_dec_uint(stage_delta(0)) + "/" +
+                   to_string_dec_uint(stage_delta(1)) + "/" + to_string_dec_uint(stage_delta(2)) + "/" +
+                   to_string_dec_uint(stage_delta(3)));
+    text_avg.set("DS B/F/P/M " + to_string_dec_uint(stage_delta(4)) + "/" +
+                 to_string_dec_uint(stage_delta(5)) + "/" + to_string_dec_uint(stage_delta(6)) + "/" +
+                 to_string_dec_uint(stage_delta(7)));
+    text_peak.set("M4 CH: " + to_string_dec_uint(diag_ack_channel_));
+}
+
+void WifiAimView::update_scan_status() {
+    if (!scanning_) return;
+    text_status.set("S " + to_string_dec_uint(scan_channel_) + "/13 C" +
+                    to_string_dec_uint(scan_capture_delta()) + " D" +
+                    to_string_dec_uint(scan_decode_delta()) + " M" +
+                    to_string_dec_uint(diag_ack_channel_));
+    update_phy_diag_display();
+}''')
+          rep(uic,
+              '    scan_decode_base_ = diag_decode_total_;\n    diag_ack_channel_ = 0;',
+              '    scan_decode_base_ = diag_decode_total_;\n    scan_stage_base_ = diag_stage_total_;\n    diag_ack_channel_ = 0;')
+          rep(uic,
+              '''    text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
+                    to_string_dec_uint(scan_capture_delta()) + " D" +
+                    to_string_dec_uint(scan_decode_delta()));
+    update_ap_display();''',
+              '''    text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
+                    to_string_dec_uint(scan_capture_delta()) + " D" +
+                    to_string_dec_uint(scan_decode_delta()) + " M" +
+                    to_string_dec_uint(diag_ack_channel_));
+    update_phy_diag_display();
+    update_ap_display();''')
+          rep(uic,
+              '''    diag_decode_total_ = static_cast<uint16_t>(w.decode_total & 0x3FFFu);
+    diag_ack_channel_ = w.channel;
+    update_scan_status();''',
+              '''    diag_decode_total_ = static_cast<uint16_t>(w.decode_total & 0x3FFFu);
+    diag_ack_channel_ = w.channel;
+    diag_stage_total_ = {w.ofdm_ltf_total, w.ofdm_signal_total, w.ofdm_data_total, w.ofdm_mac_total,
+                         w.dsss_bits_total, w.dsss_sfd_total, w.dsss_plcp_total, w.dsss_mac_total};
+    update_scan_status();
+    if (!scanning_ && !target_set_) {
+        text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
+                        to_string_dec_uint(scan_capture_delta()) + " D" +
+                        to_string_dec_uint(scan_decode_delta()) + " M" +
+                        to_string_dec_uint(diag_ack_channel_));
+        update_phy_diag_display();
+    }''')
+
+          # Build-time sanity markers.
+          assert 'M4DecodeTrace' in Path(phyh).read_text()
+          assert 'OFDM_LTF' in Path(phyc).read_text()
+          assert 'dsss_mac_total' in Path(wire).read_text()
+          assert 'OF L/S/D/M' in Path(uic).read_text()
+          assert 'DS B/F/P/M' in Path(uic).read_text()
+
+          Path('hackrf/FIX8_PHY_STAGE_DIAGNOSTICS.md').write_text('''# WiFi AIM Fix8 — PHY stage diagnostics\n\nReason: real Fix7c hardware test completed as `Done 0AP C10 D0`. Capture trigger works, but no candidate completed Wi-Fi PHY decoding.\n\nFix8 adds cumulative per-scan checkpoints without adding a new M0 MessageHandlerRegistration:\n\n- OFDM `L/S/D/M`: L-LTF found / SIGNAL valid / DATA Viterbi sufficient / Beacon-or-Probe MAC parse.\n- DSSS `B/F/P/M`: Barker/DBPSK bits / SFD / PLCP valid / Beacon-or-Probe MAC parse.\n\nTelemetry remains on the existing FSKPacket path and WireApReport stays <=64 bytes. Final status also includes M4 channel acknowledgement (`M`).\n''')
+          PY
+
+      - name: Remove one-time preparer and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f hackrf/FIX8_PREP_TRIGGER.txt
+          rm -f .github/workflows/prepare_wifi_aim_fix8.yml
+          git config user.name K0STUR
+          git config user.email 74721566+K0STUR@users.noreply.github.com
+          git add -A
+          git commit -m 'WiFi AIM Fix8: add OFDM DSSS stage telemetry'
+          git push origin HEAD:main
