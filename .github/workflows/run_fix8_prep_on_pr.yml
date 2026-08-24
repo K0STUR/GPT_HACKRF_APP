@@ -37,7 +37,51 @@ jobs:
           out=[]
           for line in y[start:end]:
               out.append(line[10:] if line.startswith('          ') else line)
-          Path('/tmp/fix8_patch.py').write_text('\n'.join(out)+'\n')
+          patch='\n'.join(out)+'\n'
+
+          # The patcher was drafted against Fix7b. Current main already contains
+          # Fix7c's update_done_status(), so adapt only the two UI anchors while
+          # preserving Fix7c's exact final C/D refresh behavior.
+          patch=patch.replace(
+              "'    void update_scan_status();\\n    uint16_t scan_capture_delta() const;',\n              '    void update_scan_status();\\n    void update_phy_diag_display();\\n    uint8_t stage_delta(std::size_t i) const;\\n    uint16_t scan_capture_delta() const;'",
+              "'    void update_scan_status();\\n    void update_done_status();\\nn    uint16_t scan_capture_delta() const;'.replace('\\n\\n','\\n'),\n              '    void update_scan_status();\\n    void update_done_status();\\n    void update_phy_diag_display();\\n    uint8_t stage_delta(std::size_t i) const;\\n    uint16_t scan_capture_delta() const;'"
+          )
+
+          old='''rep(uic,
+              ''' + "'''" + '''    text_status.set(\"Done \" + to_string_dec_uint(ap_count_) + \"AP C\" +
+                    to_string_dec_uint(scan_capture_delta()) + \" D\" +
+                    to_string_dec_uint(scan_decode_delta()));
+    update_ap_display();''' + "'''" + ''',
+              ''' + "'''" + '''    text_status.set(\"Done \" + to_string_dec_uint(ap_count_) + \"AP C\" +
+                    to_string_dec_uint(scan_capture_delta()) + \" D\" +
+                    to_string_dec_uint(scan_decode_delta()) + \" M\" +
+                    to_string_dec_uint(diag_ack_channel_));
+    update_phy_diag_display();
+    update_ap_display();''' + "'''" + ''')'''
+          new='''rep(uic,
+              ''' + "'''" + '''void WifiAimView::update_done_status() {
+    if (scanning_ || target_set_) return;
+    text_status.set(\"Done \" + to_string_dec_uint(ap_count_) + \"AP C\" +
+                    to_string_dec_uint(scan_capture_delta()) + \" D\" +
+                    to_string_dec_uint(scan_decode_delta()));
+}''' + "'''" + ''',
+              ''' + "'''" + '''void WifiAimView::update_done_status() {
+    if (scanning_ || target_set_) return;
+    text_status.set(\"Done \" + to_string_dec_uint(ap_count_) + \"AP C\" +
+                    to_string_dec_uint(scan_capture_delta()) + \" D\" +
+                    to_string_dec_uint(scan_decode_delta()) + \" M\" +
+                    to_string_dec_uint(diag_ack_channel_));
+    update_phy_diag_display();
+}''' + "'''" + ''')'''
+          if old not in patch:
+              raise SystemExit('Fix7b end-scan patch block not found in extracted patcher')
+          patch=patch.replace(old,new,1)
+
+          # Correct the small header-anchor rewrite above explicitly; using a
+          # direct literal keeps the generated patch readable and deterministic.
+          patch=patch.replace("'    void update_scan_status();\\n    void update_done_status();\\nn    uint16_t scan_capture_delta() const;'.replace('\\n\\n','\\n')",
+                              "'    void update_scan_status();\\n    void update_done_status();\\n    uint16_t scan_capture_delta() const;'")
+          Path('/tmp/fix8_patch.py').write_text(patch)
           PY
           python3 /tmp/fix8_patch.py
 
