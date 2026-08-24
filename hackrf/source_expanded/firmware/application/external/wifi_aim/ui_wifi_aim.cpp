@@ -191,7 +191,7 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
                            to_string_dec_uint(static_cast<uint8_t>(w.ssid[7])));
             const uint16_t n = static_cast<uint16_t>(static_cast<uint8_t>(w.ssid[10])) |
                                static_cast<uint16_t>(static_cast<uint8_t>(w.ssid[11]) << 8);
-            text_channel.set("LQ " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[8])) +
+            text_channel.set("SQ " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[8])) +
                              " R " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[9])) +
                              " N " + to_string_dec_uint(n));
         }
