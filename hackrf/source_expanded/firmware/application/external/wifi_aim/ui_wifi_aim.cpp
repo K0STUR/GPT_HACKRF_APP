@@ -91,7 +91,8 @@ void WifiAimView::update_done_status() {
     if (scanning_ || target_set_) return;
     text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
                     to_string_dec_uint(scan_capture_delta()) + " D" +
-                    to_string_dec_uint(scan_decode_delta()));
+                    to_string_dec_uint(scan_decode_delta()) + " M" +
+                    to_string_dec_uint(diag_ack_channel_));
 }
 
 void WifiAimView::start_scan() {
@@ -107,8 +108,8 @@ void WifiAimView::start_scan() {
 
 void WifiAimView::end_scan() {
     scanning_ = false; set_decoder(false);
-    // Initial value; Fix7c refreshes it again when M4's final disabled-state
-    // telemetry arrives, so C/D include the last completed capture exactly.
+    // Initial value; M4 final disabled-state telemetry refreshes C/D/M and
+    // Fix8a probe values once more after the last channel completes.
     update_done_status();
     update_ap_display();
 }
@@ -161,7 +162,7 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
     std::memcpy(&w, msg->packet->data, sizeof(w));
     if (std::memcmp(w.magic, "WAIM", 4) != 0 || w.version != 3 || w.channel < 1 || w.channel > 13) return;
 
-    // Fix7b/Fix7c transport diagnostics over the existing FSKPacket path.
+    // Fix7c/Fix8a transport diagnostics over the existing FSKPacket path.
     // This avoids adding a HunterTrigger MessageHandlerRegistration to M0.
     diag_capture_total_ = static_cast<uint16_t>(w.capture_total & 0x3FFFu);
     diag_decode_total_ = static_cast<uint16_t>(w.decode_total & 0x3FFFu);
@@ -170,6 +171,15 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
 
     // bit7 marks a diagnostics-only packet; it is not an access point report.
     if (w.flags & 0x80u) {
+        // Fix8a reuses otherwise-unused diagnostic BSSID bytes. ssid_len=0xF8
+        // distinguishes this from older Fix7b/Fix7c telemetry.
+        if (w.ssid_len == 0xF8u) {
+            text_level.set("HIT 16/64/B " + to_string_dec_uint(w.bssid[0]) + "/" +
+                           to_string_dec_uint(w.bssid[1]) + "/" + to_string_dec_uint(w.bssid[2]));
+            text_avg.set("Q   16/64/B " + to_string_dec_uint(w.bssid[3]) + "/" +
+                         to_string_dec_uint(w.bssid[4]) + "/" + to_string_dec_uint(w.bssid[5]));
+            text_peak.set("M4 CH: " + to_string_dec_uint(diag_ack_channel_));
+        }
         update_done_status();
         return;
     }
