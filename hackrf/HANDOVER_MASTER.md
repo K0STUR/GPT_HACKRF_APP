@@ -1,265 +1,205 @@
 # HackRF / PortaPack / WiFi AIM — MASTER HANDOVER
 
-Updated: 2026-08-22
+Updated: 2026-08-24
 
-## 1. User goal
-Use a directional antenna connected directly to the HackRF/PortaPack `ANTENNA` SMA to find the best roof position/orientation for one chosen Wi-Fi AP.
+## 1. Goal
+Build a passive PortaPack external app that can:
 
-SSID identification is a MUST HAVE. A generic channel-energy meter is not enough because neighbouring APs may share the same/overlapping channel.
+`SCAN CH1–13 -> identify SSID/BSSID/channel -> choose exact BSSID -> TARGET -> AIM -> REF -> DELTA REF`
 
-Target workflow:
-`SCAN CH1–13 -> show SSID/BSSID/channel -> choose exact BSSID -> TARGET -> AIM -> REF -> maximise DELTA REF`.
+SSID identification is mandatory. A generic energy meter is not sufficient because overlapping APs may share a channel. Final aiming should use frames from the selected BSSID and relative signal, not claim calibrated dBm.
 
-The final AIM screen should prefer signal measurements from frames belonging to the selected BSSID, not merely total channel power. Decoder modes should be `OFF / AUTO / ON` so expensive Wi-Fi PHY decoding can be intermittent.
+Passive receive only. No deauth/jamming/interference.
 
-## 2. Hardware and firmware
-- HackRF One: early/classic board, around 2014 era or faithful clone.
-- Classic micro-USB, expansion headers P20/P22/P28.
-- Upper SMA labelled `ANTENNA` is the RF input/output.
-- Lower SMA connectors are `CLK IN` / `CLK OUT`, not antenna inputs.
-- PortaPack H4/H4M-class device.
-- Current installed Mayhem shown by the device: `n_260808`.
-- Exact upstream tag: `nightly-tag-2026-08-08`.
-- Exact upstream commit: `367eaf54c0f51f62448d9f2d9585fd3629f6b770`.
+## 2. Hardware / firmware target
+- HackRF One + PortaPack Mayhem.
+- use the upper SMA labelled `ANTENNA`; lower SMA connectors are CLK IN/OUT.
+- device remains on stock Mayhem **`n_260808`**.
+- upstream tag: `nightly-tag-2026-08-08`.
+- upstream commit: `367eaf54c0f51f62448d9f2d9585fd3629f6b770`.
+- do not flash matched custom `w_260822` without explicit user permission.
 
-HackRF facts used in the design:
-- about 1 MHz–6 GHz tuning;
-- up to 20 MS/s complex I/Q;
-- 8-bit ADC/DAC;
-- half duplex;
-- not a calibrated power meter.
+Canonical repo: **`K0STUR/GPT_HACKRF_APP`**.
+Old `K0STUR/GPT` is for FORDstecki only.
 
-For antenna placement use relative dB/DELTA REF and keep AMP/LNA/VGA unchanged between reference/comparison points.
-
-## 3. Why a custom app is needed
-Stock Mayhem Looking Glass / Signal Hunter can show 2.4 GHz RF activity but do not provide the required robust AP list and target-by-BSSID workflow. The project therefore implements a Mayhem external app (`.ppma`) with:
-- M0 UI/integration;
-- M4 baseband/DSP image tagged `WAIM`.
-
-## 4. WiFi AIM functionality already implemented in source
-- 2.4 GHz CH1–CH13 scan framework.
-- Beacon parsing.
-- Probe Response parsing.
-- SSID.
-- hidden SSID handling.
-- BSSID.
-- channel.
-- target selection by BSSID.
+## 3. Implemented app architecture
+- Mayhem external `.ppma` app.
+- M0 UI/integration + embedded M4 baseband image tagged `WAIM`.
+- scan channels 1–13 at 20 MS/s.
+- Beacon + Probe Response parsing.
+- SSID + hidden SSID.
+- BSSID + channel.
+- TARGET selection by BSSID.
 - LIVE / AVG / PEAK / REF / DELTA REF framework.
-- decoder `OFF / AUTO / ON` framework.
-- M4 capture/trigger/IPC pipeline.
+- decoder OFF/AUTO/ON framework.
+- relative packet level only; not calibrated dBm.
 
-PHY decoders implemented/tested:
-- 802.11b DSSS / DBPSK 1 Mb/s;
-- legacy OFDM 6 Mb/s;
-- legacy OFDM 12 Mb/s;
-- legacy OFDM 24 Mb/s.
+## 4. Core ABI / loader history — solved
+Early full builds shifted stock Mayhem core symbols and HardFaulted on the real device. Fix6 established the correct stock-compatible approach:
+- external app/M4 isolation;
+- local MAC formatter instead of missing stock symbol;
+- hardened stock-vs-modified ABI audit;
+- require core symbol drift 0, patch 0, ambiguous 0, unresolved 0, checksum 0.
 
-The app intentionally does NOT implement WPA decryption, TCP/IP, or payload capture. Only enough 802.11 PHY/MAC is needed to identify APs and measure the selected target.
+Fix6 real hardware launches successfully on stock `n_260808`. Do not return to import rebasing unless a future hardened audit actually fails.
 
-## 5. Tests already completed
-Host-side / synthetic testing previously passed for:
-- parser/DSSS/statistics (49 checks);
-- synthetic DSSS Beacon -> SSID/BSSID/channel;
-- synthetic OFDM Beacon at 6/12/24 Mb/s;
-- CFO cases around +37/+47/+70 kHz during development;
-- multipath echo;
-- AWGN;
-- int8 ADC-like quantisation;
-- ASan + UBSan;
-- random IQ fuzz and null input;
-- actual `proc_wifi_aim` trigger -> capture -> decode -> IPC path.
+## 5. Critical hardware progression
+### Fix7c — capture completion proven
+`Done 0AP C10 D0`
 
-A deliberately truncated long DSSS Beacon still yielded SSID/BSSID/channel within the roughly 1 ms capture window, which supports the short-capture design.
+Meaning: M4 completes real capture attempts; decoder was the remaining problem.
 
-ARM work:
-- Cortex-M4F / Thumb / hard-float / `-Os` probes completed;
-- heavy trig/math dependencies removed from production decoder;
-- production `WAIM.bin` in full builds is 16092 B;
-- capture buffer was brought to about 20000 IQ samples (~1 ms @ 20 MS/s).
+### Fix8a — captured IQ strongly OFDM-like
+`Done 0AP C26 D0 M13`
+`HIT 16/64/B 21/21/0`
+`Q 16/64/B 100/100/53`
 
-## 6. Real hardware proof: RF probe works
-A simplified WiFiAim RF probe based on Mayhem's Signal Hunter was rebuilt exactly for `n_260808`.
+### Fix8b — localized old LTF synchronization failure
+`OF L/H/V/P 2/2/2/1`
+while roughly 20 captures had strong 64-sample repetition.
 
-First attempt built against the wrong nightly was rejected as `outdated`, confirming external-app version coupling.
+### Fix8c — repetition-based LTF sync fixed the main gate
+Fix8c uses a repetition metric based on high Q64 and low Q16 rather than hard correlation to an ideal channel-free LTF.
 
-The exact `n_260808` probe then launched successfully on the real PortaPack.
+Representative real hardware:
+`Done 0AP C26 D0 M13`
+`OF L/H/V/P 24/24/24/15`
+`OF R/N/D/M 1/0/0/0`
+`SQ 98`
 
-User observation:
-- antenna attached -> much stronger red RF/activity bar excursions;
-- antenna unscrewed -> much weaker excursions.
+This is a major hardware-proven milestone. Do not revert this synchronization without new evidence.
 
-Conclusion: `ANTENNA SMA -> HackRF RF -> PortaPack -> external app` receive path is good. Do not revisit basic RF-chain feasibility unless new evidence contradicts this.
+### Fix8d — full legacy OFDM support and first AP detections
+Added:
+- 6/9/12/18/24/36/48/54 Mb/s legacy OFDM;
+- BPSK/QPSK/16-QAM/64-QAM;
+- rate-1/2, 2/3 and 3/4 support;
+- depuncturing + erasure-aware Viterbi.
 
-## 7. Full WiFi AIM build / failure history
-### Original full build
-Official Mayhem Docker/GNU ARM build completed:
-- `.ppma` size 22592 B;
-- `WAIM.bin` 16092 B;
-- SHA-256 `e4d8a9adaf20806d6f9fac37abff22bbaa546f3ce752c2fcf90120e2a458a5dc`.
+Static hardened run `32712871860`: PASS, core drift 0, checksum 0, SHA `359995bd49ec59eeec0fff799cd616c392fd022bdb284f558ef4f7bdeae2edeb`.
 
-Real device result: `The .ppma file in your apps folder can't be read.`
+Real hardware: 5 scans, **2/5 found `1AP`**. Typical capture count ~`C20–C28`.
 
-### Fix1 — loader alignment/checksum
-Original M4 offset was about 6493 B, not word-aligned. Fix1 moved it to 6496 and recalculated checksum.
+Representative successful scan:
+`Done 1AP C28 D1 M13`
+`OF L/H/V/P 24/24/24/11`
+`OF R/N/D/M 4/2/2/0`
 
-Verified fix1 values:
-- memory `0x10083EDC`;
-- entry `0x10083F31`;
-- header 3;
-- app version `0x86B64C1D`;
-- tag `WAIM`;
-- M4 offset 6496;
-- loader checksum `0x00000000`;
-- SHA `c3e16d35398f28e2130ad992951f5368ecd6f142a473f4198514fe0adcfee49b`.
+Another scan reached:
+`OF R/N/D/M 10/3/3/0`
 
-The loader accepted it, but the app immediately HardFaulted.
+Interpretation:
+- full RATE support works;
+- OFDM can reach DATA Viterbi on real RF;
+- OFDM MAC counter M remained 0;
+- global AP/D sometimes became 1, therefore the intermittent AP success most likely came from the DSSS fallback.
 
-### HardFault evidence from real device
-Capture #1:
-- r0 `0x200040E0`
-- r1 `0x00000040`
-- r2 `0x00000200`
-- r3 `0x10083F31`
-- r12 `0x0007EE39`
-- lr `0x10083F3B`
-- pc `0x00000040`
+**Fix8d is the last functional hardware baseline.**
 
-Capture #2:
-- r0 `0x200040E0`
-- r1 `0x000001A4`
-- r2 `0x00000200`
-- r3 `0x10083F31`
-- r12 `0x0007EE39`
-- lr `0x10083F3B`
-- pc `0x000001A4`
+## 6. Fix8e — current regression state
+Fix8e was created to add:
+- post-DATA OFDM telemetry `P S/F/G/B/I`;
+- DSSS attempts/success telemetry `DS A/S`;
+- UI restoration so final diagnostics do not hide AP/SSID/BSSID/channel;
+- a guard that skips exhaustive DSSS when OFDM SIGNAL parity already passed.
 
-Entry disassembly shows first imported/core `BL` begins at about `0x10083F36`, with return LR `0x10083F3B`, exactly matching the crash.
+Fix8e source location:
+- branch `wifi-aim-fix8e-prep`
+- PR `#11`
 
-Working probe import path references about `0x0007EE25` (`operator new` symbol ~`0x0007EE24`). Full WiFi AIM referenced about `0x0007EE39`.
+Hardened CI:
+- run `32723430968`
+- job `97419505883`
+- artifact `9519205449`
+- size `27048`
+- M4 offset `8864`
+- core drift `0`
+- drift refs `0`
+- patches `0`
+- ambiguous `0`
+- unresolved `0`
+- checksum `0`
+- SHA `631c9bfe66f2b4d69405c5bad5055a28e48e61069ec5cb04b6dec3a02c63f3ee`
+- RESULT PASS.
 
-Root cause: the full build shifted Mayhem core symbol addresses by including WiFi AIM content in the monolithic M0 link. The resulting `.ppma` therefore imported functions at addresses valid for the modified firmware build, while the user's device still had stock `n_260808`.
+Real hardware Fix8e:
+- 4 scans total;
+- **0 AP in 4/4**;
+- same location has at least 5 Wi-Fi networks visible to phone.
 
-## 8. Later fixes and exact current state
-### Fix2 / lowmem / fix3
-- loader invariants and alignment improved;
-- AP/history buffers reduced in lowmem variant;
-- useful engineering work, but did not solve the core-address mismatch.
+Representative screen:
+`Done 0AP C1 D0 M13`
+`OF L/H/V/P 0/0/0/0`
+`OF R/N/D/M 0/0/0/0`
+`SQ 0 R 255 N 0`
+`HIT 16/64/B 1/1/0`
+`Q 16/64/B 96/96/32`
+`DS A/S 1/0 FC 255/255`
+`P S/F/G/B/I 0/0/0/0/0`
 
-### Fix4 — isolate M0 WiFi AIM sections
-Fix4 forced WiFi AIM `.text*`, `.rodata*`, `.data*`, `.gnu.linkonce*`, `.ARM.extab*`, `.ARM.exidx*` into the external region.
+The key regression is **capture count `C1`** for a complete 13-channel scan, versus Fix8d's ~20–28.
 
-Build produced a valid loader image:
-- size 22636 B;
-- M4 offset 6540;
-- loader checksum 0.
+M4 channel acknowledgement still reaches 13, so M0/M4 control and channel retune progress. The single capture attempted DSSS and failed.
 
-But `VERIFY.txt` reports `stock_operator_new_match=False`, so stock core addresses still did not match. RESULT=FAIL.
+Leading hypothesis: Fix8e still runs the exhaustive DSSS decoder when OFDM does not reach parity. If the first capture is non-OFDM/parity-failing, that expensive phase/offset search may monopolize M4 for much of the scan, starving later DMA/capture work. This is plausible but NOT yet proven.
 
-### Fix5 — patch imported symbols back to stock addresses
-Fix5 compared modified-build imports against stock symbols and patched many external call veneers.
+## 7. Repository state at handover
+Important:
+- **`main` = Fix8d functional source baseline + current documentation.**
+- **Fix8e source stays on `wifi-aim-fix8e-prep` / PR #11.**
+- Do not merge Fix8e blindly.
+- detailed current hardware report: `FIX8E_HARDWARE_RESULT.md`.
 
-Exact result:
-- 58 import patches found/applied;
-- `operator new` corrected `0x0007EE39 -> 0x0007EE25`;
-- many ReceiverModel/UI/baseband/libstdc++ functions corrected;
-- ambiguous_count = 0;
-- unresolved_count = 1;
-- unresolved symbol: `_Z21to_string_mac_addressB5cxx11PKhhb`;
-- final checksum = 0;
-- RESULT=FAIL because one import remained unresolved.
+Readable source:
+`hackrf/source_expanded/`
 
-Do not call fix5 fully stock-compatible until that last import is resolved and the complete import set is verified.
+Key files:
+- `firmware/application/external/wifi_aim/ui_wifi_aim.cpp`
+- `firmware/application/external/wifi_aim/ui_wifi_aim.hpp`
+- `firmware/baseband/proc_wifi_aim.cpp`
+- `firmware/baseband/proc_wifi_aim.hpp`
+- `firmware/common/wifi_aim/wifi_aim_capture_probe.hpp`
+- `firmware/common/wifi_aim/wifi_aim_phy.cpp`
+- `firmware/common/wifi_aim/wifi_aim_phy.hpp`
+- `firmware/common/wifi_aim_wire.hpp`
 
-### Diagnostic `TEST_veneerpatch1`
-A narrower test image patched 17 selected veneers.
+## 8. Exact continuation for the next chat
+The next chat should **not** continue directly into deeper OFDM parser work. First restore capture throughput.
 
-Static verification:
-- size 22436 B;
-- patched_count 17;
-- loader word sum 0;
-- operator-new import `0x0007EE25`;
-- SHA `dca529f1098d4081fb149af7cf3aeeb6a77acc658b52b8d31b09affbb2baacbb`;
-- RESULT=PASS.
+Recommended first task:
+1. read `README.md`, `PROJECT_STATUS.md`, `FIX8E_HARDWARE_RESULT.md`, `TEST_LOG.md`, `NEXT_CHAT_PROMPT.md`;
+2. diff `main` against `wifi-aim-fix8e-prep`;
+3. focus on `M4WifiDecoder::decode()` and the CPU cost of `M4LegacyWifiDecoder::decode()`;
+4. preserve all hardware-proven components:
+   - stock zero-drift ABI path;
+   - 2048 IQ pretrigger;
+   - separate FSK AP/diagnostic backing stores;
+   - Fix8c repetition LTF synchronization;
+   - Fix8d full legacy OFDM rates;
+5. bound/gate/time-slice exhaustive DSSS during broad SCAN so one bad capture cannot monopolize M4;
+6. re-run hardened build;
+7. hardware-test with the first acceptance target: **return to `C20+` per complete 13-channel scan** while M13 still works;
+8. only once throughput is restored, use Fix8e-style `P S/F/G/B/I` telemetry to classify OFDM DATA output;
+9. if AP>0, verify SSID/BSSID/channel stay visible and then continue TARGET -> AIM -> REF/DELTA.
 
-There is NO hardware result recorded for this file in the current conversation. It is a diagnostic candidate, not proven working.
+Possible implementation directions for the new chat to evaluate, not already executed:
+- only run DSSS if a cheap DSSS/Barker pre-classifier suggests it;
+- run a bounded subset of DSSS phases/offsets per capture;
+- time-slice DSSS across captures/frame periods;
+- dedicate some channels/windows to DSSS and others to OFDM;
+- add a processing-time/overrun counter to prove or disprove starvation before optimizing.
 
-## 9. Matched custom firmware strategy — currently the cleanest alternative
-To avoid external-app/core ABI mismatch by construction, a matched firmware + app bundle was built from the same modified source tree.
+## 9. What NOT to do
+- do not restart RF feasibility analysis;
+- do not revisit loader/core rebasing unless hardened ABI fails;
+- do not revert Fix8c LTF repetition sync;
+- do not remove full Fix8d legacy OFDM support;
+- do not interpret Fix8e `0AP` as absence of Wi-Fi — phone sees 5+ nearby networks;
+- do not merge Fix8e branch blindly;
+- do not flash custom `w_260822` without explicit permission;
+- do not claim calibrated absolute dBm.
 
-Folder:
-`hackrf/build_results/wifi_aim_bundle_w260822/`
+## 10. End goal
+`SCAN -> exact SSID/BSSID -> TARGET -> directional AIM -> REF -> DELTA REF`
 
-Artifacts:
-- `WiFiAIM_w_260822.ppma` — 22636 B;
-- `portapack-mayhem_WIFI_AIM_w_260822.bin` — 1048576 B;
-- `COPY_TO_SDCARD_WIFI_AIM_w_260822.zip` — matched APPS/FIRMWARE SD bundle;
-- `WAIM.bin`;
-- hashes/status/verify.
-
-Build version: `w_260822`.
-
-Verification:
-- memory `0x10083EDC`;
-- entry `0x10083F31`;
-- header 3;
-- version MD5 `0x96CD1C19`;
-- tag `WAIM`;
-- M4 offset 6540 (aligned);
-- loader checksum 0;
-- `.ppma` SHA `37e7cd018c58c2264ce8b5d2929f3a137dcf1a60dd82bf64e3cb18e35c995fe0`;
-- RESULT=PASS.
-
-Important: this strategy requires flashing the included custom firmware AND using the APPS from the matched bundle. Do not mix `WiFiAIM_w_260822.ppma` with stock `n_260808`.
-
-This route is likely the fastest way to reach the real SSID-decoder test, but changing firmware should only happen with explicit user agreement and a backup/recovery plan.
-
-## 10. External app/linker details that matter
-For this Mayhem nightly, exporter constants used in the project include:
-- M4 tag header offset 76;
-- M4 offset header position 80;
-- external app maximum combined size 32 KiB.
-
-Project-added virtual external slot is around `0xAE0D0000`, after upstream Signal Hunter `0xAE0B0000` and TETRA RX `0xAE0C0000`.
-
-Do not assume a `.ppma` compiled in a modified Mayhem application link will run on stock firmware merely because the version string/checksum match. Internal absolute imported function addresses must also match.
-
-## 11. Repository handoff structure
-The `hackrf/` folder is self-contained enough for a new chat:
-- human-readable docs in the folder root;
-- encoded source chunks under `source_archive/`;
-- every relevant WiFi AIM build/result mirrored under `build_results/`;
-- standalone diagnostics under `diagnostics/`;
-- all project workflows under `workflows_archive/`;
-- `MANIFEST_SHA256.txt` hashes the mirrored files;
-- `REPO_SNAPSHOT.txt` records the assembly snapshot.
-
-## 12. What NOT to do in the next chat
-- Do not restart from basic spectrum scanning.
-- Do not replace the main HackRF RF path with ESP32/monitor-mode Wi-Fi hardware.
-- Do not claim calibrated absolute dBm.
-- Do not assume fix4 succeeded — it explicitly failed stock-operator-new parity.
-- Do not assume fix5 succeeded — one import remains unresolved.
-- Do not claim `TEST_veneerpatch1` is hardware-proven; it is only statically verified so far.
-- Do not hand the matched `w_260822` `.ppma` to a device still running stock `n_260808`.
-
-## 13. Exact continuation options
-### Option A — preserve stock `n_260808`
-Continue import rebasing:
-1. Resolve the remaining `to_string_mac_address` symbol mapping.
-2. Re-run full symbol/import comparison against stock `n_260808`.
-3. Require zero ambiguous and zero unresolved imports.
-4. Recompute/verify loader checksum.
-5. Hardware-test the resulting stock-compatible `.ppma`.
-
-### Option B — fastest path to real SSID test
-Use the matched custom `w_260822` firmware bundle:
-1. back up current SD/firmware/recovery path;
-2. flash the included matched firmware;
-3. copy the matched APPS bundle;
-4. launch WiFi AIM;
-5. test `SCAN` for real SSIDs;
-6. if SSIDs appear, test BSSID TARGET and DELTA REF;
-7. if no SSIDs appear, only then return to PHY capture/synchronisation diagnostics.
-
-A new chat should inspect `PROJECT_STATUS.md` and the newest `build_results` before deciding which path to take.
+Passive only.
