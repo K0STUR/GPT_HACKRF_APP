@@ -2,6 +2,7 @@
 
 #include "event_m4.hpp"
 #include "portapack_shared_memory.hpp"
+#include "wifi_aim/wifi_aim_capture_probe.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -52,6 +53,28 @@ void WifiAimProcessor::send_wire_report(const wifiaim::WireApReport& wire, FskPa
     shared_memory.application_queue.push(msg);
 }
 
+void WifiAimProcessor::reset_probe_diag() {
+    probe_o16_hits_ = 0;
+    probe_o64_hits_ = 0;
+    probe_barker_hits_ = 0;
+    probe_o16_peak_ = 0;
+    probe_o64_peak_ = 0;
+    probe_barker_peak_ = 0;
+}
+
+void WifiAimProcessor::fill_probe_diag(wifiaim::WireApReport& wire) const {
+    // Diagnostic-only packets do not use BSSID/SSID fields. Reuse those six
+    // bytes as a compact Fix8a telemetry payload without changing WireApReport
+    // layout or any stock-core message ABI.
+    wire.ssid_len = 0xF8u;  // Fix8a raw-capture probe marker.
+    wire.bssid[0] = probe_o16_hits_;
+    wire.bssid[1] = probe_o64_hits_;
+    wire.bssid[2] = probe_barker_hits_;
+    wire.bssid[3] = probe_o16_peak_;
+    wire.bssid[4] = probe_o64_peak_;
+    wire.bssid[5] = probe_barker_peak_;
+}
+
 void WifiAimProcessor::send_diag_state() {
     // Use the existing FSKPacket IPC path already used by Fix6. bit7 means
     // telemetry only and must not become an AP entry. Fix7c keeps telemetry
@@ -61,6 +84,7 @@ void WifiAimProcessor::send_diag_state() {
     wire.flags = 0x80u;
     wire.capture_total = static_cast<uint16_t>(capture_attempts_ & 0x3FFFu);
     wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);
+    fill_probe_diag(wire);
     send_wire_report(wire, diag_packet_);
 }
 
@@ -71,6 +95,16 @@ void WifiAimProcessor::reset_detector() {
 }
 
 void WifiAimProcessor::finish_capture() {
+    // Fix8a asks a question independent from the actual decoder: does the raw
+    // capture contain repetition/Barker structure characteristic of Wi-Fi?
+    const auto probe = wifiaim::probe_capture(capture_.data(), capture_count_);
+    if ((probe.flags & wifiaim::CaptureProbeResult::OFDM16) && probe_o16_hits_ != 0xFFu) ++probe_o16_hits_;
+    if ((probe.flags & wifiaim::CaptureProbeResult::OFDM64) && probe_o64_hits_ != 0xFFu) ++probe_o64_hits_;
+    if ((probe.flags & wifiaim::CaptureProbeResult::BARKER) && probe_barker_hits_ != 0xFFu) ++probe_barker_hits_;
+    probe_o16_peak_ = std::max(probe_o16_peak_, probe.ofdm16_score);
+    probe_o64_peak_ = std::max(probe_o64_peak_, probe.ofdm64_score);
+    probe_barker_peak_ = std::max(probe_barker_peak_, probe.barker_score);
+
     wifiaim::M4ApReport ap{};
     const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap);
     if (decoded) ++decode_successes_;
@@ -97,6 +131,7 @@ void WifiAimProcessor::finish_capture() {
         // second. We only need periodic progress here; exact totals are also
         // sent on every decoder/channel state change.
         wire.flags = 0x80u;
+        fill_probe_diag(wire);
         send_wire_report(wire, diag_packet_);
     }
 
@@ -157,6 +192,12 @@ void WifiAimProcessor::on_message(const Message* const message) {
             const auto& m = *reinterpret_cast<const HunterConfigMessage*>(message);
             if (m.energy_threshold >= 1 && m.energy_threshold <= 13)
                 tuned_channel_ = static_cast<uint8_t>(m.energy_threshold);
+
+            // A scan always begins by enabling channel 1. Reset only the Fix8a
+            // per-scan probe values here; C/D keep their existing cumulative
+            // semantics and are delta'd by M0 as before.
+            if (m.start && tuned_channel_ == 1u) reset_probe_diag();
+
             enabled_ = m.start;
             capture_count_ = 0;
             pretrigger_count_ = 0;
