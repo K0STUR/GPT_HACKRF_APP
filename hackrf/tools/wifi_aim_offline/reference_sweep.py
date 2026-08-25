@@ -3,9 +3,7 @@ import argparse
 import csv
 import json
 import math
-import os
 import pathlib
-import random
 import subprocess
 import sys
 
@@ -13,20 +11,19 @@ import numpy as np
 
 
 def beacon_mpdu(ssid=b"WAIM-REFERENCE", channel=6):
-    # Minimal legacy beacon MPDU sufficient for WiFi AIM's prefix parser.
     bssid = bytes.fromhex("021122334455")
     p = bytearray()
-    p += bytes.fromhex("8000")                  # Beacon frame control
-    p += bytes.fromhex("0000")                  # Duration
-    p += b"\xff" * 6                            # DA
-    p += bssid                                   # SA
-    p += bssid                                   # BSSID
-    p += bytes.fromhex("0000")                  # Sequence control
-    p += b"\x00" * 8                            # Timestamp
-    p += bytes.fromhex("6400")                  # Beacon interval
-    p += bytes.fromhex("0100")                  # Capabilities
-    p += bytes([0, len(ssid)]) + ssid            # SSID IE
-    p += bytes([3, 1, channel])                  # DS parameter set IE
+    p += bytes.fromhex("8000")
+    p += bytes.fromhex("0000")
+    p += b"\xff" * 6
+    p += bssid
+    p += bssid
+    p += bytes.fromhex("0000")
+    p += b"\x00" * 8
+    p += bytes.fromhex("6400")
+    p += bytes.fromhex("0100")
+    p += bytes([0, len(ssid)]) + ssid
+    p += bytes([3, 1, channel])
     return bytes(p)
 
 
@@ -84,9 +81,16 @@ def main():
     rows = []
     rng = np.random.default_rng(0x5741494D)
     mpdu = beacon_mpdu()
-
-    # Reference project's legacy MCS 0..7 corresponds to 6/9/12/18/24/36/48/54 Mb/s.
     rates = [6, 9, 12, 18, 24, 36, 48, 54]
+
+    def expected_lsig(mcs):
+        bits = list(p8h.C_LEGACY_RATE_BIT[mcs])
+        bits.append(0)
+        for i in range(12):
+            bits.append((len(mpdu) >> i) & 1)
+        bits.append(sum(bits) & 1)
+        bits += [0] * 6
+        return "".join(str(int(b)) for b in bits)
 
     def generate(mcs, cfo_hz=0.0):
         phy = phy80211.phy80211(ifDebug=False)
@@ -100,10 +104,16 @@ def main():
     def test(name, mcs, sig, impairment, value):
         iq8 = quantize_iq8(sig)
         r = run_decoder(args.decoder, iq8, tmp)
+        exp = expected_lsig(mcs)
+        got = r.get("signal_bits", "")
+        bit_errors = sum(a != b for a, b in zip(exp, got)) if len(got) == 24 else -1
         row = {
             "name": name,
             "mcs": mcs,
             "expected_rate_mbps": rates[mcs],
+            "expected_signal_bits": exp,
+            "signal_bit_errors": bit_errors,
+            "expected_ltf_index": 704,
             "impairment": impairment,
             "value": value,
             **r,
@@ -111,24 +121,20 @@ def main():
         rows.append(row)
         print(json.dumps(row, sort_keys=True))
 
-    # A. Golden clean vectors for every legacy rate.
     clean_by_mcs = {}
     for mcs in range(8):
         sig = generate(mcs, 0.0)
         clean_by_mcs[mcs] = sig
         test(f"clean_mcs{mcs}", mcs, sig, "clean", 0)
 
-    # B. CFO sweep focused on the 6 Mb/s beacon. Includes integer-bin and adjacent-channel offsets.
     for cfo in [-5_000_000, -1_000_000, -625_000, -312_500, -156_250, -100_000,
                 -50_000, 50_000, 100_000, 156_250, 312_500, 625_000, 1_000_000, 5_000_000]:
         test(f"cfo_{cfo:+d}", 0, generate(0, cfo), "cfo_hz", cfo)
 
-    # C. Noise robustness on the exact same independently generated clean vector.
     base = clean_by_mcs[0]
     for snr in [30, 20, 15, 10, 7, 5]:
         test(f"awgn_{snr}dB", 0, add_awgn(base, snr, rng), "snr_db", snr)
 
-    # D. Simple delayed echo, within and beyond the 16-sample legacy OFDM GI.
     for delay, gain in [(1, 0.25), (4, 0.35), (8, 0.35), (12, 0.35), (16, 0.35), (20, 0.35)]:
         test(f"echo_d{delay}_g{gain}", 0, add_multipath(base, delay, gain), "echo", f"d={delay},g={gain}")
 
@@ -142,13 +148,17 @@ def main():
 
     clean = [r for r in rows if r["impairment"] == "clean"]
     clean_ok = sum(bool(r["ok"]) and r["rate_mbps"] == r["expected_rate_mbps"] for r in clean)
+    clean_lsig_exact = sum(r["signal_bit_errors"] == 0 for r in clean)
     stage_hist = {}
     for r in rows:
         stage_hist[str(r["stage"])] = stage_hist.get(str(r["stage"]), 0) + 1
     summary = {
         "reference": "cloud9477/gr-ieee80211 Python PHY generator",
         "clean_exact_pass": clean_ok,
+        "clean_lsig_exact": clean_lsig_exact,
         "clean_total": len(clean),
+        "clean_ltf_indices": [r["ltf_index"] for r in clean],
+        "clean_lsig_bit_errors": [r["signal_bit_errors"] for r in clean],
         "stage_histogram": stage_hist,
     }
     (outdir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
