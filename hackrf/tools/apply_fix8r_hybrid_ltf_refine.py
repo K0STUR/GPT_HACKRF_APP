@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+from pathlib import Path
+
+p = Path('hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp')
+s = p.read_text()
+old = '''    std::size_t best_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;\n    if (best_d + 128u > count) return false;\n'''
+new = '''    // Fix8r: keep Fix8c's channel-invariant repetition detector as the broad\n    // admission gate, but recover absolute 64-sample LTF phase locally using\n    // the existing ideal kLtf template. The old Fix8b hard q>=0.22 gate is NOT\n    // restored: we only use the local maximum for timing refinement, preserving\n    // Fix8c throughput while recovering the timing information lost by a pure\n    // 64-sample repetition plateau.\n    const std::size_t nominal_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;\n    float ref_e = 0.0f;\n    for (const auto& r : kLtf) ref_e += r.r*r.r + r.i*r.i;\n    const std::size_t local_lo = nominal_d > 16u ? nominal_d - 16u : 0u;\n    const std::size_t local_hi = std::min<std::size_t>(nominal_d + 16u, count > 128u ? count - 128u : 0u);\n    float ref_best = -1.0f;\n    std::size_t ref_best_d = nominal_d;\n    for (std::size_t d = local_lo; d <= local_hi; ++d) {\n        float cr=0.0f, ci=0.0f, ey=0.0f;\n        for (std::size_t n=0;n<64u;++n) {\n            const float yr=static_cast<float>(s[d+n].i), yi=static_cast<float>(s[d+n].q);\n            const float rr=kLtf[n].r, ri=kLtf[n].i;\n            cr += rr*yr + ri*yi;\n            ci += rr*yi - ri*yr;\n            ey += yr*yr + yi*yi;\n        }\n        if (ey <= 1.0f) continue;\n        const float q=(cr*cr+ci*ci)/(ref_e*ey);\n        if (q > ref_best) { ref_best=q; ref_best_d=d; }\n    }\n    // Enter each FFT eight samples inside the CP, as Fix8c intended, but now\n    // relative to the locally template-aligned LTF phase rather than run_end.\n    std::size_t best_d = ref_best_d > kTimingBackoff ? ref_best_d - kTimingBackoff : ref_best_d;\n    if (best_d + 128u > count) return false;\n    // For Fix8r SQ reports the local template-refinement quality instead of the\n    // broad repetition peak. This is diagnostic only and does not gate decode.\n    if (ref_best >= 0.0f) score = std::min(1.0f, ref_best);\n'''
+assert s.count(old) == 1, s.count(old)
+s = s.replace(old, new, 1)
+p.write_text(s)
+print('FIX8R_PATCH=PASS')
