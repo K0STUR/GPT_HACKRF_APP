@@ -1,1 +1,0 @@
-Prepare Fix8o quantized soft-decision DATA Viterbi from Fix8n hardware baseline.
