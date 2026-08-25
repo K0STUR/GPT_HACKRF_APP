@@ -1,0 +1,44 @@
+name: Prepare WiFi AIM Fix8o soft DATA Viterbi
+
+on:
+  pull_request:
+    paths:
+      - 'hackrf/FIX8O_PREP_TRIGGER.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply Fix8o
+        run: python3 hackrf/tools/apply_fix8o_soft_data_viterbi.py
+
+      - name: Validate Fix8o source markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'Fix8o: keep the proven hard-decision SIGNAL path unchanged' hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+          grep -q 'auto soft_symbol' hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+          grep -q 'auto viterbi_soft' hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+          grep -q 'out_soft\[oo++\]=7u' hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+          grep -q '!viterbi_soft(coded_.data()' hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+
+      - name: Commit baked Fix8o source and remove preparation files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f hackrf/FIX8O_PREP_TRIGGER.txt
+          rm -f hackrf/tools/apply_fix8o_soft_data_viterbi.py
+          rm -f .github/workflows/prepare_wifi_aim_fix8o.yml
+          git config user.name K0STUR
+          git config user.email 74721566+K0STUR@users.noreply.github.com
+          git add -A
+          git commit -m 'WiFi AIM Fix8o: quantized soft-decision DATA Viterbi'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
