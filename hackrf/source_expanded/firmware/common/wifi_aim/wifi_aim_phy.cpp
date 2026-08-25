@@ -335,8 +335,11 @@ void M4OfdmWifiDecoder::load_fft(const IQ8* s, std::size_t start, std::size_t or
     }
     for (std::size_t n=0;n<64;++n) {
         const float xr=s[start+n].i, xi=s[start+n].q;
+        // Fix8q diagnostic: conjugate the CFO-corrected OFDM sample before
+        // FFT. This reverses spectral orientation (k <-> -k) while preserving
+        // amplitude/timing. DSSS and the raw repetition detector are untouched.
         fft_[n].r=xr*rr-xi*ri;
-        fft_[n].i=xr*ri+xi*rr;
+        fft_[n].i=-(xr*ri+xi*rr);
         const float nr=rr*cfo_step_r-ri*cfo_step_i;
         const float ni=rr*cfo_step_i+ri*cfo_step_r;
         rr=nr; ri=ni;
