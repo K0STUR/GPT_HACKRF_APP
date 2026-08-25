@@ -47,22 +47,23 @@ int main(int argc, char** argv) {
     float cfo_r=1.0f,cfo_i=0.0f,ltf_raw_score=0.0f;
     const bool ltf_recheck=decoder.find_ltf(iq.data(),iq.size(),ltf_index,cfo_r,cfo_i,ltf_raw_score);
 
-    std::string signal_bits;
-    if (tr.stage>=3u && tr.stage<7u) {
-        signal_bits.reserve(24);
-        for (unsigned i=0;i<24u;++i) signal_bits.push_back(decoder.decoded_[i]?'1':'0');
-    }
-
     uint8_t hard[48]{};
     uint8_t deint[48]{};
+    uint8_t sig_decoded[24]{};
     bool hard_ok=false;
+    std::size_t sig_n=0;
     if (ltf_recheck && ltf_index+208u<=iq.size()) {
-        // decoder.decode() has already populated h_ using this same candidate.
+        // decode() has populated h_. Re-run only the L-SIG path after the full
+        // packet attempt so DATA cannot overwrite the host diagnostic bits.
         hard_ok=decoder.hard_symbol(iq.data(),ltf_index+144u,ltf_index,cfo_r,cfo_i,0u,1u,hard);
-        if (hard_ok) decoder.deinterleave(hard,deint,48u,1u);
+        if (hard_ok) {
+            decoder.deinterleave(hard,deint,48u,1u);
+            decoder.viterbi(deint,48u,sig_decoded,sig_n);
+        }
     }
     const std::string hard_bits=hard_ok?bits_string(hard,48):std::string{};
     const std::string deint_bits=hard_ok?bits_string(deint,48):std::string{};
+    const std::string signal_bits=(sig_n>=24u)?bits_string(sig_decoded,24):std::string{};
 
     std::ostringstream bssid; bssid<<std::hex<<std::setfill('0');
     for (int i=0;i<6;++i) { if(i)bssid<<':'; bssid<<std::setw(2)<<unsigned(ap.bssid[i]); }
