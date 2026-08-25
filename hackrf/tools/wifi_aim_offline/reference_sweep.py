@@ -57,6 +57,10 @@ def add_multipath(sig, delay, gain):
     return y
 
 
+def bit_errors(expected, got):
+    return sum(a != b for a, b in zip(expected, got)) if len(expected) == len(got) else -1
+
+
 def run_decoder(exe, iq8, tmp_path):
     iq8.tofile(tmp_path)
     cp = subprocess.run([exe, str(tmp_path)], text=True, capture_output=True, check=True)
@@ -83,14 +87,24 @@ def main():
     mpdu = beacon_mpdu()
     rates = [6, 9, 12, 18, 24, 36, 48, 54]
 
-    def expected_lsig(mcs):
+    def expected_lsig_bits(mcs):
         bits = list(p8h.C_LEGACY_RATE_BIT[mcs])
         bits.append(0)
         for i in range(12):
             bits.append((len(mpdu) >> i) & 1)
         bits.append(sum(bits) & 1)
         bits += [0] * 6
-        return "".join(str(int(b)) for b in bits)
+        return bits
+
+    def expected_chain(mcs):
+        uncoded = expected_lsig_bits(mcs)
+        coded = p8h.procBcc(list(uncoded), p8h.CR.CR12)
+        interleaved = p8h.procInterleaveSigL(list(coded))
+        return (
+            "".join(str(int(b)) for b in uncoded),
+            "".join(str(int(b)) for b in coded),
+            "".join(str(int(b)) for b in interleaved),
+        )
 
     def generate(mcs, cfo_hz=0.0):
         phy = phy80211.phy80211(ifDebug=False)
@@ -104,15 +118,15 @@ def main():
     def test(name, mcs, sig, impairment, value):
         iq8 = quantize_iq8(sig)
         r = run_decoder(args.decoder, iq8, tmp)
-        exp = expected_lsig(mcs)
-        got = r.get("signal_bits", "")
-        bit_errors = sum(a != b for a, b in zip(exp, got)) if len(got) == 24 else -1
+        exp_sig, exp_coded, exp_inter = expected_chain(mcs)
         row = {
             "name": name,
             "mcs": mcs,
             "expected_rate_mbps": rates[mcs],
-            "expected_signal_bits": exp,
-            "signal_bit_errors": bit_errors,
+            "expected_signal_bits": exp_sig,
+            "signal_bit_errors": bit_errors(exp_sig, r.get("signal_bits", "")),
+            "hard_bit_errors": bit_errors(exp_inter, r.get("signal_hard_bits", "")),
+            "deinterleaved_bit_errors": bit_errors(exp_coded, r.get("signal_deinterleaved_bits", "")),
             "expected_ltf_index": 704,
             "impairment": impairment,
             "value": value,
@@ -147,17 +161,19 @@ def main():
     json_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
     clean = [r for r in rows if r["impairment"] == "clean"]
-    clean_ok = sum(bool(r["ok"]) and r["rate_mbps"] == r["expected_rate_mbps"] for r in clean)
-    clean_lsig_exact = sum(r["signal_bit_errors"] == 0 for r in clean)
     stage_hist = {}
     for r in rows:
         stage_hist[str(r["stage"])] = stage_hist.get(str(r["stage"]), 0) + 1
     summary = {
         "reference": "cloud9477/gr-ieee80211 Python PHY generator",
-        "clean_exact_pass": clean_ok,
-        "clean_lsig_exact": clean_lsig_exact,
+        "clean_exact_pass": sum(bool(r["ok"]) and r["rate_mbps"] == r["expected_rate_mbps"] for r in clean),
+        "clean_lsig_exact": sum(r["signal_bit_errors"] == 0 for r in clean),
+        "clean_hard_exact": sum(r["hard_bit_errors"] == 0 for r in clean),
+        "clean_deinterleaved_exact": sum(r["deinterleaved_bit_errors"] == 0 for r in clean),
         "clean_total": len(clean),
         "clean_ltf_indices": [r["ltf_index"] for r in clean],
+        "clean_hard_bit_errors": [r["hard_bit_errors"] for r in clean],
+        "clean_deinterleaved_bit_errors": [r["deinterleaved_bit_errors"] for r in clean],
         "clean_lsig_bit_errors": [r["signal_bit_errors"] for r in clean],
         "stage_histogram": stage_hist,
     }
