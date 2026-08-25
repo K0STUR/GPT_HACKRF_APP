@@ -283,8 +283,39 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
         return false;
     }
 
-    std::size_t best_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;
+    // Fix8r: keep Fix8c's channel-invariant repetition detector as the broad
+    // admission gate, but recover absolute 64-sample LTF phase locally using
+    // the existing ideal kLtf template. The old Fix8b hard q>=0.22 gate is NOT
+    // restored: we only use the local maximum for timing refinement, preserving
+    // Fix8c throughput while recovering the timing information lost by a pure
+    // 64-sample repetition plateau.
+    const std::size_t nominal_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;
+    float ref_e = 0.0f;
+    for (const auto& r : kLtf) ref_e += r.r*r.r + r.i*r.i;
+    const std::size_t local_lo = nominal_d > 16u ? nominal_d - 16u : 0u;
+    const std::size_t local_hi = std::min<std::size_t>(nominal_d + 16u, count > 128u ? count - 128u : 0u);
+    float ref_best = -1.0f;
+    std::size_t ref_best_d = nominal_d;
+    for (std::size_t d = local_lo; d <= local_hi; ++d) {
+        float cr=0.0f, ci=0.0f, ey=0.0f;
+        for (std::size_t n=0;n<64u;++n) {
+            const float yr=static_cast<float>(s[d+n].i), yi=static_cast<float>(s[d+n].q);
+            const float rr=kLtf[n].r, ri=kLtf[n].i;
+            cr += rr*yr + ri*yi;
+            ci += rr*yi - ri*yr;
+            ey += yr*yr + yi*yi;
+        }
+        if (ey <= 1.0f) continue;
+        const float q=(cr*cr+ci*ci)/(ref_e*ey);
+        if (q > ref_best) { ref_best=q; ref_best_d=d; }
+    }
+    // Enter each FFT eight samples inside the CP, as Fix8c intended, but now
+    // relative to the locally template-aligned LTF phase rather than run_end.
+    std::size_t best_d = ref_best_d > kTimingBackoff ? ref_best_d - kTimingBackoff : ref_best_d;
     if (best_d + 128u > count) return false;
+    // For Fix8r SQ reports the local template-refinement quality instead of the
+    // broad repetition peak. This is diagnostic only and does not gate decode.
+    if (ref_best >= 0.0f) score = std::min(1.0f, ref_best);
 
     float pr = 0.0f, pi = 0.0f;
     for (std::size_t n = 0; n < 64u; ++n) {
