@@ -66,6 +66,35 @@ jobs:
             --out "$PWD/build_offline/candidate_results" \
             | tee build_offline/candidate.log
 
+      - name: Enforce candidate regression gates
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('build_offline/candidate_results')
+          summary=json.loads((root/'summary.json').read_text())
+          rows=json.loads((root/'results.json').read_text())
+          assert summary['clean_exact_pass']==8, summary
+          assert summary['clean_lsig_exact']==8, summary
+          assert summary['clean_hard_exact']==8, summary
+          assert summary['clean_deinterleaved_exact']==8, summary
+          assert summary['timing_exact_pass']==summary['timing_total']==8, summary
+
+          by_name={r['name']:r for r in rows}
+          for cfo in (-600000,-500000,-312500,-156250,-100000,-50000,50000,100000,156250,312500,500000,600000):
+              r=by_name[f'cfo_{cfo:+d}']
+              assert r['ok'] and r['rate_mbps']==6 and r['ssid']=='WAIM-REFERENCE', r
+          for cfo in (-5000000,5000000):
+              r=by_name[f'cfo_{cfo:+d}']
+              assert not r['ok'], r
+          for snr in (30,20,15,10,7):
+              r=by_name[f'awgn_{snr}dB']
+              assert r['ok'], r
+          for r in rows:
+              if r['impairment']=='echo': assert r['ok'], r
+          print('OFFLINE_PHY_REGRESSION=PASS')
+          PY
+
       - name: Compare summaries
         if: always()
         run: |
