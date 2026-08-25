@@ -595,24 +595,29 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     if (coded_n<static_cast<std::size_t>(2u*n_dbps) || !viterbi(coded_.data(),coded_n,decoded_.data(),data_dec) || data_dec<16+36*8) return false;
     if (trace) trace->stage = 7;
 
-    // Fix8n compact radius-1 SERVICE seed recovery.
-    uint8_t raw_state=0u;
-    for (unsigned i=0;i<7u;++i) raw_state|=static_cast<uint8_t>((decoded_[i]&1u)<<(6u-i));
+    // Fix8p: exact nearest-codeword search across all 127 legal non-zero
+    // scrambler sequences. Unlike Fix8n's radius-1 fast path, FC now reports
+    // the true Hamming distance across all 16 known-zero SERVICE bits.
+    // Distance <=2 is admitted experimentally; existing MAC structure checks
+    // remain mandatory before an AP can be reported.
     uint8_t best_state=0u, service_errors=0xFFu;
-    for (unsigned flip=0u;flip<8u;++flip) {
-        unsigned candidate=raw_state ^ (flip<7u ? (64u>>flip) : 0u);
-        if (!candidate) continue;
-        uint8_t errors=static_cast<uint8_t>(flip<7u);
+    for (unsigned candidate=1u;candidate<128u;++candidate) {
+        uint8_t errors=0u;
+        for (unsigned i=0u;i<7u;++i)
+            errors+=static_cast<uint8_t>((decoded_[i]&1u)!=((candidate>>(6u-i))&1u));
         unsigned st=candidate;
-        for (unsigned i=7u;i<16u && errors<=1u;++i) {
+        for (unsigned i=7u;i<16u;++i) {
             const unsigned feedback=((st>>6)^(st>>3))&1u;
             errors+=static_cast<uint8_t>((decoded_[i]&1u)!=feedback);
             st=((st<<1)&0x7eu)|feedback;
         }
-        if (errors<service_errors) { service_errors=errors; best_state=static_cast<uint8_t>(candidate); }
+        if (errors<service_errors) {
+            service_errors=errors;
+            best_state=static_cast<uint8_t>(candidate);
+        }
     }
     if (trace) trace->service_errors=service_errors;
-    if (!best_state || service_errors>1u) return false;
+    if (!best_state || service_errors>2u) return false;
     unsigned state=best_state;
     for (unsigned i=7u;i<16u;++i) {
         const unsigned feedback=((state>>6)^(state>>3))&1u;
