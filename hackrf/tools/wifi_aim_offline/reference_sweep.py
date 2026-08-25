@@ -13,15 +13,9 @@ import numpy as np
 def beacon_mpdu(ssid=b"WAIM-REFERENCE", channel=6):
     bssid = bytes.fromhex("021122334455")
     p = bytearray()
-    p += bytes.fromhex("8000")
-    p += bytes.fromhex("0000")
-    p += b"\xff" * 6
-    p += bssid
-    p += bssid
-    p += bytes.fromhex("0000")
-    p += b"\x00" * 8
-    p += bytes.fromhex("6400")
-    p += bytes.fromhex("0100")
+    p += bytes.fromhex("8000") + bytes.fromhex("0000") + b"\xff" * 6
+    p += bssid + bssid + bytes.fromhex("0000") + b"\x00" * 8
+    p += bytes.fromhex("6400") + bytes.fromhex("0100")
     p += bytes([0, len(ssid)]) + ssid
     p += bytes([3, 1, channel])
     return bytes(p)
@@ -34,17 +28,14 @@ def quantize_iq8(sig, target_peak=100.0):
     i = np.clip(np.rint(x.real * scale), -127, 127).astype(np.int8)
     q = np.clip(np.rint(x.imag * scale), -127, 127).astype(np.int8)
     out = np.empty(i.size * 2, dtype=np.int8)
-    out[0::2] = i
-    out[1::2] = q
+    out[0::2], out[1::2] = i, q
     return out
 
 
 def add_awgn(sig, snr_db, rng):
     x = np.asarray(sig, dtype=np.complex64)
     p = float(np.mean(np.abs(x) ** 2))
-    if p <= 0:
-        return x
-    npow = p / (10.0 ** (snr_db / 10.0))
+    npow = p / (10.0 ** (snr_db / 10.0)) if p > 0 else 0.0
     n = (rng.normal(size=x.size) + 1j * rng.normal(size=x.size)) * math.sqrt(npow / 2.0)
     return (x + n).astype(np.complex64)
 
@@ -52,9 +43,18 @@ def add_awgn(sig, snr_db, rng):
 def add_multipath(sig, delay, gain):
     x = np.asarray(sig, dtype=np.complex64)
     y = x.copy()
-    if delay > 0 and delay < x.size:
+    if 0 < delay < x.size:
         y[delay:] += np.complex64(gain) * x[:-delay]
     return y
+
+
+def shift_capture(sig, shift):
+    x = np.asarray(sig, dtype=np.complex64)
+    if shift > 0:
+        return np.concatenate((np.zeros(shift, dtype=np.complex64), x))
+    if shift < 0:
+        return x[-shift:]
+    return x.copy()
 
 
 def bit_errors(expected, got):
@@ -88,23 +88,16 @@ def main():
     rates = [6, 9, 12, 18, 24, 36, 48, 54]
 
     def expected_lsig_bits(mcs):
-        bits = list(p8h.C_LEGACY_RATE_BIT[mcs])
-        bits.append(0)
-        for i in range(12):
-            bits.append((len(mpdu) >> i) & 1)
+        bits = list(p8h.C_LEGACY_RATE_BIT[mcs]) + [0]
+        bits += [(len(mpdu) >> i) & 1 for i in range(12)]
         bits.append(sum(bits) & 1)
-        bits += [0] * 6
-        return bits
+        return bits + [0] * 6
 
     def expected_chain(mcs):
         uncoded = expected_lsig_bits(mcs)
         coded = p8h.procBcc(list(uncoded), p8h.CR.CR12)
         interleaved = p8h.procInterleaveSigL(list(coded))
-        return (
-            "".join(str(int(b)) for b in uncoded),
-            "".join(str(int(b)) for b in coded),
-            "".join(str(int(b)) for b in interleaved),
-        )
+        return tuple("".join(str(int(b)) for b in z) for z in (uncoded, coded, interleaved))
 
     def generate(mcs, cfo_hz=0.0):
         phy = phy80211.phy80211(ifDebug=False)
@@ -115,34 +108,32 @@ def main():
             raise RuntimeError("reference generator returned no samples")
         return np.asarray(streams[0], dtype=np.complex64)
 
-    def test(name, mcs, sig, impairment, value):
-        iq8 = quantize_iq8(sig)
-        r = run_decoder(args.decoder, iq8, tmp)
+    def test(name, mcs, sig, impairment, value, expected_ltf=704):
+        r = run_decoder(args.decoder, quantize_iq8(sig), tmp)
         exp_sig, exp_coded, exp_inter = expected_chain(mcs)
         row = {
-            "name": name,
-            "mcs": mcs,
-            "expected_rate_mbps": rates[mcs],
+            "name": name, "mcs": mcs, "expected_rate_mbps": rates[mcs],
             "expected_signal_bits": exp_sig,
             "signal_bit_errors": bit_errors(exp_sig, r.get("signal_bits", "")),
             "hard_bit_errors": bit_errors(exp_inter, r.get("signal_hard_bits", "")),
             "deinterleaved_bit_errors": bit_errors(exp_coded, r.get("signal_deinterleaved_bits", "")),
-            "expected_ltf_index": 704,
-            "impairment": impairment,
-            "value": value,
-            **r,
+            "expected_ltf_index": expected_ltf,
+            "ltf_index_error": int(r.get("ltf_index", 0)) - expected_ltf,
+            "impairment": impairment, "value": value, **r,
         }
         rows.append(row)
         print(json.dumps(row, sort_keys=True))
 
     clean_by_mcs = {}
     for mcs in range(8):
-        sig = generate(mcs, 0.0)
-        clean_by_mcs[mcs] = sig
-        test(f"clean_mcs{mcs}", mcs, sig, "clean", 0)
+        clean_by_mcs[mcs] = generate(mcs, 0.0)
+        test(f"clean_mcs{mcs}", mcs, clean_by_mcs[mcs], "clean", 0)
 
-    for cfo in [-5_000_000, -1_000_000, -625_000, -312_500, -156_250, -100_000,
-                -50_000, 50_000, 100_000, 156_250, 312_500, 625_000, 1_000_000, 5_000_000]:
+    # Standard coarse-CFO region plus deliberate out-of-range/integer-bin cases.
+    cfo_values = [-5_000_000, -1_000_000, -625_000, -600_000, -500_000, -312_500,
+                  -156_250, -100_000, -50_000, 50_000, 100_000, 156_250, 312_500,
+                  500_000, 600_000, 625_000, 1_000_000, 5_000_000]
+    for cfo in cfo_values:
         test(f"cfo_{cfo:+d}", 0, generate(0, cfo), "cfo_hz", cfo)
 
     base = clean_by_mcs[0]
@@ -152,18 +143,22 @@ def main():
     for delay, gain in [(1, 0.25), (4, 0.35), (8, 0.35), (12, 0.35), (16, 0.35), (20, 0.35)]:
         test(f"echo_d{delay}_g{gain}", 0, add_multipath(base, delay, gain), "echo", f"d={delay},g={gain}")
 
-    csv_path = outdir / "results.csv"
-    json_path = outdir / "results.json"
+    # Move the same physical PPDU within the capture buffer. Negative shifts crop
+    # only the reference generator's leading zero gap; the STF remains intact.
+    for shift in [-448, -320, -160, -64, 64, 160, 320, 448]:
+        test(f"capture_shift_{shift:+d}", 0, shift_capture(base, shift),
+             "capture_shift_samples", shift, expected_ltf=704 + shift)
+
+    csv_path, json_path = outdir / "results.csv", outdir / "results.json"
     with csv_path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        w.writeheader()
-        w.writerows(rows)
+        w.writeheader(); w.writerows(rows)
     json_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
     clean = [r for r in rows if r["impairment"] == "clean"]
+    timing = [r for r in rows if r["impairment"] == "capture_shift_samples"]
     stage_hist = {}
-    for r in rows:
-        stage_hist[str(r["stage"])] = stage_hist.get(str(r["stage"]), 0) + 1
+    for r in rows: stage_hist[str(r["stage"])] = stage_hist.get(str(r["stage"]), 0) + 1
     summary = {
         "reference": "cloud9477/gr-ieee80211 Python PHY generator",
         "clean_exact_pass": sum(bool(r["ok"]) and r["rate_mbps"] == r["expected_rate_mbps"] for r in clean),
@@ -172,9 +167,8 @@ def main():
         "clean_deinterleaved_exact": sum(r["deinterleaved_bit_errors"] == 0 for r in clean),
         "clean_total": len(clean),
         "clean_ltf_indices": [r["ltf_index"] for r in clean],
-        "clean_hard_bit_errors": [r["hard_bit_errors"] for r in clean],
-        "clean_deinterleaved_bit_errors": [r["deinterleaved_bit_errors"] for r in clean],
-        "clean_lsig_bit_errors": [r["signal_bit_errors"] for r in clean],
+        "timing_exact_pass": sum(bool(r["ok"]) and r["ltf_index_error"] == 0 for r in timing),
+        "timing_total": len(timing),
         "stage_histogram": stage_hist,
     }
     (outdir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
