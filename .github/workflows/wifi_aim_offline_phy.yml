@@ -36,7 +36,7 @@ jobs:
             hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp \
             -o build_offline/wifi_aim_host_decode_baseline
 
-      - name: Create corrected LTF timing candidate in workspace
+      - name: Create corrected PHY candidate in workspace
         run: |
           mkdir -p build_offline/candidate
           cp hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp build_offline/candidate/wifi_aim_phy.cpp
@@ -44,14 +44,29 @@ jobs:
           from pathlib import Path
           p=Path('build_offline/candidate/wifi_aim_phy.cpp')
           s=p.read_text()
+
+          # Candidate A: recover absolute LTF FFT timing using the known 64-sample
+          # LTF template. The old repetition backoff is not subtracted a second time.
           old='''    std::size_t best_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;\n    if (best_d + 128u > count) return false;\n\n    float pr = 0.0f, pi = 0.0f;\n'''
           new='''    // Offline candidate: repetition gives a broad LTF region but not absolute\n    // 64-sample FFT phase. Refine it against the known time-domain LTF over a\n    // wide local window. kLtf itself is the 64-sample FFT interval, therefore\n    // the correlation maximum is used DIRECTLY; do not subtract the old\n    // repetition backoff again.\n    const std::size_t nominal_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;\n    const std::size_t local_lo = nominal_d > 48u ? nominal_d - 48u : 0u;\n    const std::size_t local_hi = std::min<std::size_t>(nominal_d + 48u, count > 128u ? count - 128u : 0u);\n    float ref_e = 0.0f;\n    for (const auto& r : kLtf) ref_e += r.r*r.r + r.i*r.i;\n    float ref_best = -1.0f;\n    std::size_t best_d = nominal_d;\n    for (std::size_t d=local_lo; d<=local_hi; ++d) {\n        float cr=0.0f, ci=0.0f, ey=0.0f;\n        for (std::size_t n=0;n<64u;++n) {\n            const float yr=static_cast<float>(s[d+n].i), yi=static_cast<float>(s[d+n].q);\n            const float rr=kLtf[n].r, ri=kLtf[n].i;\n            cr += rr*yr + ri*yi;\n            ci += rr*yi - ri*yr;\n            ey += yr*yr + yi*yi;\n        }\n        if (ey <= 1.0f) continue;\n        const float q=(cr*cr+ci*ci)/(ref_e*ey);\n        if (q > ref_best) { ref_best=q; best_d=d; }\n    }\n    if (best_d + 128u > count) return false;\n    if (ref_best >= 0.0f) score = std::min(1.0f, ref_best);\n\n    float pr = 0.0f, pi = 0.0f;\n'''
           if old not in s:
-              raise SystemExit('candidate patch anchor not found')
-          p.write_text(s.replace(old,new,1))
+              raise SystemExit('timing candidate patch anchor not found')
+          s=s.replace(old,new,1)
+
+          # Candidate B: IEEE 802.11 constellation mapping uses negative axis for
+          # sign bit 0 and positive axis for sign bit 1. Production currently
+          # demaps the sign bits backwards. This affects BPSK and the I/Q sign
+          # bits of QPSK/16-QAM/64-QAM; magnitude bits remain unchanged.
+          n_re=s.count('(re<0.0f)?1u:0u')
+          n_im=s.count('(im<0.0f)?1u:0u')
+          if n_re < 4 or n_im < 3:
+              raise SystemExit(f'unexpected sign-demapper anchors re={n_re} im={n_im}')
+          s=s.replace('(re<0.0f)?1u:0u','(re>0.0f)?1u:0u')
+          s=s.replace('(im<0.0f)?1u:0u','(im>0.0f)?1u:0u')
+          p.write_text(s)
           PY
 
-      - name: Build corrected timing candidate
+      - name: Build corrected PHY candidate
         run: |
           g++ -std=c++17 -O2 -Wall -Wextra -Werror \
             -Ihackrf/source_expanded/firmware/common \
@@ -67,7 +82,7 @@ jobs:
             --out "$PWD/build_offline/baseline" \
             | tee build_offline/baseline.log
 
-      - name: Run corrected timing candidate against same IQ
+      - name: Run corrected PHY candidate against same IQ
         run: |
           python3 hackrf/tools/wifi_aim_offline/reference_sweep.py \
             --decoder "$PWD/build_offline/wifi_aim_host_decode_candidate" \
