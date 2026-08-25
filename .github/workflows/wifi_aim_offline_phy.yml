@@ -1,0 +1,64 @@
+name: WiFi AIM Offline PHY
+
+on:
+  push:
+    branches:
+      - wifi-aim-offline-phy-harness-v1
+  pull_request:
+    branches:
+      - wifi-aim-fix8p-exact-service-ml2
+  workflow_dispatch:
+
+jobs:
+  offline-phy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout WiFi AIM
+        uses: actions/checkout@v4
+
+      - name: Checkout independent IEEE 802.11 reference generator
+        uses: actions/checkout@v4
+        with:
+          repository: cloud9477/gr-ieee80211
+          path: reference_gr_ieee80211
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --user numpy matplotlib
+
+      - name: Build exact WiFi AIM PHY as host executable
+        run: |
+          mkdir -p build_offline
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror \
+            -Ihackrf/source_expanded/firmware/common \
+            hackrf/tools/wifi_aim_offline/host_decode.cpp \
+            hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp \
+            -o build_offline/wifi_aim_host_decode
+
+      - name: Generate independent golden IQ and run impairment sweep
+        run: |
+          python3 hackrf/tools/wifi_aim_offline/reference_sweep.py \
+            --decoder "$PWD/build_offline/wifi_aim_host_decode" \
+            --reference-tools "$PWD/reference_gr_ieee80211/tools" \
+            --out "$PWD/build_offline/results" \
+            | tee build_offline/offline_phy.log
+
+      - name: Show concise results
+        if: always()
+        run: |
+          echo '--- summary.json ---'
+          cat build_offline/results/summary.json || true
+          echo '--- results.csv ---'
+          cat build_offline/results/results.csv || true
+
+      - name: Upload offline PHY evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wifi-aim-offline-phy-evidence
+          path: |
+            build_offline/offline_phy.log
+            build_offline/results/*.json
+            build_offline/results/*.csv
+          if-no-files-found: warn
