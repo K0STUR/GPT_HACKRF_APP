@@ -1,5 +1,5 @@
-#include "wifi_aim/wifi_aim_phy.hpp"
-
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
@@ -7,6 +7,12 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+// Host diagnostics only: expose the exact production decoder's internal state
+// without changing wifi_aim_phy.hpp/.cpp or the M4 build.
+#define private public
+#include "wifi_aim/wifi_aim_phy.hpp"
+#undef private
 
 static std::string json_escape(const char* s, std::size_t n) {
     std::ostringstream o;
@@ -45,6 +51,17 @@ int main(int argc, char** argv) {
     wifiaim::M4OfdmTrace tr{};
     const bool ok = decoder.decode(iq.data(), iq.size(), ap, &tr);
 
+    std::size_t ltf_index = 0;
+    float cfo_r = 1.0f, cfo_i = 0.0f, ltf_raw_score = 0.0f;
+    const bool ltf_recheck = decoder.find_ltf(iq.data(), iq.size(), ltf_index, cfo_r, cfo_i, ltf_raw_score);
+
+    std::string signal_bits;
+    if (tr.stage >= 3u && tr.stage < 7u) {
+        signal_bits.reserve(24);
+        for (unsigned i = 0; i < 24u; ++i)
+            signal_bits.push_back(decoder.decoded_[i] ? '1' : '0');
+    }
+
     std::ostringstream bssid;
     bssid << std::hex << std::setfill('0');
     for (int i = 0; i < 6; ++i) {
@@ -57,6 +74,11 @@ int main(int argc, char** argv) {
         << ",\"samples\":" << iq.size()
         << ",\"stage\":" << unsigned(tr.stage)
         << ",\"ltf_score\":" << unsigned(tr.ltf_score)
+        << ",\"ltf_recheck\":" << (ltf_recheck ? "true" : "false")
+        << ",\"ltf_index\":" << ltf_index
+        << ",\"cfo_step_r\":" << cfo_r
+        << ",\"cfo_step_i\":" << cfo_i
+        << ",\"signal_bits\":\"" << signal_bits << "\""
         << ",\"rate_raw\":" << unsigned(tr.rate_raw)
         << ",\"length\":" << tr.length
         << ",\"post_stage\":" << unsigned(tr.post_stage)
