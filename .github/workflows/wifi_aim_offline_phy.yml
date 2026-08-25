@@ -45,24 +45,29 @@ jobs:
           p=Path('build_offline/candidate/wifi_aim_phy.cpp')
           s=p.read_text()
 
-          # Candidate A: recover absolute LTF FFT timing using the known 64-sample
-          # LTF template. The old repetition backoff is not subtracted a second time.
+          # A: exact LTF FFT timing from the known 64-sample time-domain template.
           old='''    std::size_t best_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;\n    if (best_d + 128u > count) return false;\n\n    float pr = 0.0f, pi = 0.0f;\n'''
           new='''    // Offline candidate: repetition gives a broad LTF region but not absolute\n    // 64-sample FFT phase. Refine it against the known time-domain LTF over a\n    // wide local window. kLtf itself is the 64-sample FFT interval, therefore\n    // the correlation maximum is used DIRECTLY; do not subtract the old\n    // repetition backoff again.\n    const std::size_t nominal_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;\n    const std::size_t local_lo = nominal_d > 48u ? nominal_d - 48u : 0u;\n    const std::size_t local_hi = std::min<std::size_t>(nominal_d + 48u, count > 128u ? count - 128u : 0u);\n    float ref_e = 0.0f;\n    for (const auto& r : kLtf) ref_e += r.r*r.r + r.i*r.i;\n    float ref_best = -1.0f;\n    std::size_t best_d = nominal_d;\n    for (std::size_t d=local_lo; d<=local_hi; ++d) {\n        float cr=0.0f, ci=0.0f, ey=0.0f;\n        for (std::size_t n=0;n<64u;++n) {\n            const float yr=static_cast<float>(s[d+n].i), yi=static_cast<float>(s[d+n].q);\n            const float rr=kLtf[n].r, ri=kLtf[n].i;\n            cr += rr*yr + ri*yi;\n            ci += rr*yi - ri*yr;\n            ey += yr*yr + yi*yi;\n        }\n        if (ey <= 1.0f) continue;\n        const float q=(cr*cr+ci*ci)/(ref_e*ey);\n        if (q > ref_best) { ref_best=q; best_d=d; }\n    }\n    if (best_d + 128u > count) return false;\n    if (ref_best >= 0.0f) score = std::min(1.0f, ref_best);\n\n    float pr = 0.0f, pi = 0.0f;\n'''
           if old not in s:
               raise SystemExit('timing candidate patch anchor not found')
           s=s.replace(old,new,1)
 
-          # Candidate B: IEEE 802.11 constellation mapping uses negative axis for
-          # sign bit 0 and positive axis for sign bit 1. Production currently
-          # demaps the sign bits backwards. This affects BPSK and the I/Q sign
-          # bits of QPSK/16-QAM/64-QAM; magnitude bits remain unchanged.
+          # B: IEEE constellation sign mapping is 0 -> negative, 1 -> positive.
           n_re=s.count('(re<0.0f)?1u:0u')
           n_im=s.count('(im<0.0f)?1u:0u')
           if n_re < 4 or n_im < 3:
               raise SystemExit(f'unexpected sign-demapper anchors re={n_re} im={n_im}')
           s=s.replace('(re<0.0f)?1u:0u','(re>0.0f)?1u:0u')
           s=s.replace('(im<0.0f)?1u:0u','(im>0.0f)?1u:0u')
+
+          # C: only SERVICE + PSDU + six DATA tail bits are required. The old
+          # +80 request can force low-rate frames to read 1-3 OFDM symbols past
+          # the real PPDU into the post-frame gap.
+          old_budget='const std::size_t want_bits=std::min<std::size_t>(kMaxDecodedBits,16u+want_bytes*8u+80u);'
+          new_budget='const std::size_t want_bits=std::min<std::size_t>(kMaxDecodedBits,16u+want_bytes*8u+6u);'
+          if old_budget not in s:
+              raise SystemExit('DATA symbol-budget patch anchor not found')
+          s=s.replace(old_budget,new_budget,1)
           p.write_text(s)
           PY
 
