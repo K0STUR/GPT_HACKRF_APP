@@ -205,6 +205,10 @@ bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& ou
 bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1,
                                       float& cfo_step_r, float& cfo_step_i, float& score) {
     if (!s || count < 500) return false;
+    // This common decoder is linked into both the M4 image and the stock M0
+    // audit image. Keep the M0 .text boundary identical to Fix8t so unrelated
+    // stock symbols retain their exact ABI addresses after the sync rewrite.
+    __asm__ volatile("nop\n\tnop");
     // Fix8u: hardware captures proved that a 2,048-sample pre-trigger plus a
     // 2,200-sample search only inspected the first 152 samples of the trigger
     // block. Cover the useful trigger geometry without scanning all 20,000.
