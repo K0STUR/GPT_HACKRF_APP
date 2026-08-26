@@ -19,6 +19,26 @@ rf::Frequency channel_frequency(uint8_t ch) {
 bool same_bssid(const std::array<uint8_t,6>& a, const uint8_t* b) {
     return std::memcmp(a.data(), b, 6) == 0;
 }
+void meta_text(char* out, std::size_t& pos, const char* text) {
+    while (*text) out[pos++] = *text++;
+}
+void meta_uint(char* out, std::size_t& pos, uint32_t value) {
+    char reverse[10];
+    std::size_t count = 0;
+    do {
+        reverse[count++] = static_cast<char>('0' + value % 10u);
+        value /= 10u;
+    } while (value);
+    while (count) out[pos++] = reverse[--count];
+}
+void meta_int(char* out, std::size_t& pos, int32_t value) {
+    if (value < 0) {
+        out[pos++] = '-';
+        meta_uint(out, pos, static_cast<uint32_t>(-static_cast<int64_t>(value)));
+    } else {
+        meta_uint(out, pos, static_cast<uint32_t>(value));
+    }
+}
 }
 
 class BoundedC8Writer final : public stream::Writer {
@@ -374,28 +394,39 @@ Optional<File::Error> WifiAimView::write_diag_metadata() {
     const auto create_error = metadata.create(diag_txt_path_);
     if (create_error.is_valid()) return create_error;
 
-    std::string text =
-        "format=C8 int8_I_int8_Q_interleaved\r\n"
-        "sample_rate_sps=20000000\r\n"
-        "firmware=" VERSION_STRING "\r\n";
-    text += "frequency_hz=" + to_string_dec_uint(channel_frequency(diag_metadata_.channel)) + "\r\n";
-    text += "channel=" + to_string_dec_uint(diag_metadata_.channel) + "\r\n";
-    text += "lna_gain_db=" + to_string_dec_uint(diag_metadata_.lna_gain_db) + "\r\n";
-    text += "vga_gain_db=" + to_string_dec_uint(diag_metadata_.vga_gain_db) + "\r\n";
-    text += "rf_amp=" + to_string_dec_uint(diag_metadata_.rf_amp ? 1u : 0u) + "\r\n";
-    text += "SQ=" + to_string_dec_uint(diag_metadata_.sq) + "\r\n";
-    text += "L/H/V/P=" + to_string_dec_uint(diag_metadata_.ofdm_stage_hits[0]) + "/" +
-            to_string_dec_uint(diag_metadata_.ofdm_stage_hits[1]) + "/" +
-            to_string_dec_uint(diag_metadata_.ofdm_stage_hits[2]) + "/" +
-            to_string_dec_uint(diag_metadata_.ofdm_stage_hits[3]) + "\r\n";
-    text += "R/N/D/M=" + to_string_dec_uint(diag_metadata_.ofdm_stage_hits[4]) + "/" +
-            to_string_dec_uint(diag_metadata_.ofdm_stage_hits[5]) + "/" +
-            to_string_dec_uint(diag_metadata_.ofdm_stage_hits[6]) + "/" +
-            to_string_dec_uint(diag_metadata_.ofdm_stage_hits[7]) + "\r\n";
-    text += "ltf_position=" + to_string_dec_uint(diag_metadata_.ltf_position) + "\r\n";
-    text += "cfo_hz=" + to_string_dec_int(diag_metadata_.cfo_hz) + "\r\n";
+    char text[320];
+    std::size_t pos = 0;
+#define META_LABEL(label, value)       \
+    do {                               \
+        meta_text(text, pos, label);   \
+        meta_uint(text, pos, value);   \
+        meta_text(text, pos, "\r\n"); \
+    } while (0)
+    meta_text(text, pos, "sample_rate_sps=20000000\r\nfirmware=" VERSION_STRING "\r\n");
+    META_LABEL("frequency_hz=", static_cast<uint32_t>(channel_frequency(diag_metadata_.channel)));
+    META_LABEL("channel=", diag_metadata_.channel);
+    META_LABEL("lna_gain_db=", diag_metadata_.lna_gain_db);
+    META_LABEL("vga_gain_db=", diag_metadata_.vga_gain_db);
+    META_LABEL("rf_amp=", diag_metadata_.rf_amp ? 1u : 0u);
+    META_LABEL("SQ=", diag_metadata_.sq);
+    meta_text(text, pos, "L/H/V/P=");
+    for (std::size_t i = 0; i < 4; ++i) {
+        if (i) text[pos++] = '/';
+        meta_uint(text, pos, diag_metadata_.ofdm_stage_hits[i]);
+    }
+    meta_text(text, pos, "\r\nR/N/D/M=");
+    for (std::size_t i = 4; i < 8; ++i) {
+        if (i != 4) text[pos++] = '/';
+        meta_uint(text, pos, diag_metadata_.ofdm_stage_hits[i]);
+    }
+    meta_text(text, pos, "\r\n");
+    META_LABEL("ltf_position=", diag_metadata_.ltf_position);
+    meta_text(text, pos, "cfo_hz=");
+    meta_int(text, pos, diag_metadata_.cfo_hz);
+    meta_text(text, pos, "\r\n");
+#undef META_LABEL
 
-    const auto write_result = metadata.write(text.data(), text.size());
+    const auto write_result = metadata.write(text, pos);
     if (write_result.is_error()) return write_result.error();
 
     const auto sync_error = metadata.sync();

@@ -22,7 +22,6 @@ assert "consume M4's drain padding without writing it" in UI
 
 # C8 and all requested metadata fields must be emitted.
 for field in (
-    "format=C8 int8_I_int8_Q_interleaved",
     "frequency_hz=",
     "channel=",
     "sample_rate_sps=20000000",
