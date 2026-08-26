@@ -64,6 +64,8 @@ class WifiAimView final : public View {
     uint32_t timer_ms_{0};
     uint32_t auto_phase_ms_{0};
     bool diag_capture_active_{false};
+    volatile bool diag_capture_done_{false};
+    volatile uint32_t diag_capture_error_{0};
     DiagCaptureMetadata diag_metadata_{};
     std::filesystem::path diag_c8_path_{};
     std::filesystem::path diag_txt_path_{};
@@ -111,12 +113,6 @@ class WifiAimView final : public View {
     MessageHandlerRegistration packet_handler_{
         Message::ID::FSKPacket,
         [this](const Message* const p) { on_packet(static_cast<const FSKRxPacketMessage*>(p)); }};
-    MessageHandlerRegistration capture_done_handler_{
-        Message::ID::CaptureThreadDone,
-        [this](const Message* const p) {
-            on_diag_capture_done(*reinterpret_cast<const CaptureThreadDoneMessage*>(p));
-        }};
-
     void set_decoder(bool on);
     void tune_channel(uint8_t ch);
     void start_scan();
@@ -126,7 +122,7 @@ class WifiAimView final : public View {
     void on_frame_sync();
     void on_packet(const FSKRxPacketMessage* msg);
     void start_diag_capture(const wifiaim::WireApReport& wire);
-    void on_diag_capture_done(const CaptureThreadDoneMessage& message);
+    void on_diag_capture_done();
     Optional<File::Error> write_diag_metadata();
     void update_scan_status();
     void update_done_status();

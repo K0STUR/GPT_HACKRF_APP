@@ -44,6 +44,7 @@ void meta_int(char* out, std::size_t& pos, int32_t value) {
 class BoundedC8Writer final : public stream::Writer {
    public:
     static constexpr std::size_t kCaptureBytes = 20'000u * 2u;
+    explicit BoundedC8Writer(volatile bool* done) : done_{done} {}
     Optional<File::Error> create(const std::filesystem::path& path) {
         return file_.create(path);
     }
@@ -57,8 +58,7 @@ class BoundedC8Writer final : public stream::Writer {
         }
         if (!remaining_ && !notified_) {
             notified_ = true;
-            CaptureThreadDoneMessage message{};
-            EventDispatcher::send_message(message);
+            *done_ = true;
         }
         // Once 40 kB is complete, consume M4's drain padding without writing it.
         return File::Size{bytes};
@@ -68,6 +68,7 @@ class BoundedC8Writer final : public stream::Writer {
     File file_{};
     File::Size remaining_{kCaptureBytes};
     bool notified_{false};
+    volatile bool* done_{nullptr};
 };
 
 WifiAimView::WifiAimView(NavigationView& nav) : nav_(nav) {
@@ -191,6 +192,7 @@ void WifiAimView::cycle_mode() {
 
 void WifiAimView::on_frame_sync() {
     constexpr uint32_t frame_ms = 17;
+    if (diag_capture_active_ && diag_capture_done_) on_diag_capture_done();
     if (scanning_) {
         // Do not retune while the selected 1 ms buffer is being drained to SD.
         if (diag_capture_active_) return;
@@ -347,8 +349,10 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
     diag_txt_path_ = diag_c8_path_;
     diag_txt_path_.replace_extension(u".TXT");
 
+    diag_capture_done_ = false;
+    diag_capture_error_ = 0;
     diag_capture_active_ = true;
-    auto writer = std::make_unique<BoundedC8Writer>();
+    auto writer = std::make_unique<BoundedC8Writer>(&diag_capture_done_);
     const auto create_error = writer->create(diag_c8_path_);
     if (create_error.is_valid()) {
         diag_capture_active_ = false;
@@ -358,21 +362,20 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
     }
     diag_capture_thread_ = std::make_unique<CaptureThread>(
         std::move(writer), 400u, 2u,
-        []() {
-            CaptureThreadDoneMessage message{};
-            EventDispatcher::send_message(message);
+        [this]() {
+            diag_capture_done_ = true;
         },
-        [](File::Error error) {
-            CaptureThreadDoneMessage message{error.code()};
-            EventDispatcher::send_message(message);
+        [this](File::Error error) {
+            diag_capture_error_ = error.code();
+            diag_capture_done_ = true;
         });
 }
 
-void WifiAimView::on_diag_capture_done(const CaptureThreadDoneMessage& message) {
+void WifiAimView::on_diag_capture_done() {
     if (!diag_capture_active_) return;
     diag_capture_thread_.reset();
     diag_capture_active_ = false;
-    if (message.error) {
+    if (diag_capture_error_) {
         text_status.set("IQ ERR SD");
         return;
     }

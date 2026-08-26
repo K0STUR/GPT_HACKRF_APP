@@ -19,6 +19,8 @@ assert "ofdm_trace.stage >= 7u" in PROC
 assert "if (state_ == State::Frozen) return;" in PROC
 assert "capture_.data()" in PROC and "diag_stream_->write" in PROC
 assert "consume M4's drain padding without writing it" in UI
+assert "EventDispatcher::send_message" not in UI
+assert "diag_capture_done_ = true" in UI
 
 # C8 and all requested metadata fields must be emitted.
 for field in (
