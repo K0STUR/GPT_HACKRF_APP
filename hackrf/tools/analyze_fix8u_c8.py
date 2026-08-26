@@ -130,6 +130,25 @@ def main():
         *[line(r) for r in golden],
         "",
         "Thresholds: sustained STF >= 75%; weaker absolute LTF pair >= 30%.",
+        "",
+        "## Verdict",
+        "",
+        "Both failure modes are real, but they apply at different stages:",
+        "",
+        "- The old 2200-sample limit is a search-geometry defect. Golden packets with "
+        "LTF at 2500, 3000, 3500, 4096, and 4500 are valid but cannot be reached "
+        "by the old search.",
+        "- These four hardware captures are false energy triggers/interference, not "
+        "valid Wi-Fi preambles hidden later in the buffer. Their best full-search STF "
+        "is below 75%, and their best absolute LTF score is only 3.9-5.5%, versus "
+        "about 99.6% for golden IQ.",
+        "- The reported positions near sample 2048 in WAIM_000/001/002 are therefore "
+        "boundary false-locks caused by admitting a locally best weak candidate. "
+        "WAIM_003 locks elsewhere but fails the same absolute STF/LTF evidence tests.",
+        "",
+        "Fix8u must correct both: search through sample 5000 and reject candidates "
+        "unless they pass sustained lag-16 STF admission followed by coarse-CFO "
+        "absolute LTF-pair matching.",
     ]
     text="\n".join(out)+"\n"
     if args.output:
