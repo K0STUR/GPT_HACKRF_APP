@@ -1,4 +1,4 @@
-name: Build WiFi AIM n_260808 Fix7b FSK diagnostics
+name: Build WiFi AIM n_260808 Fix8u trigger geometry
 
 on:
   pull_request:
@@ -45,6 +45,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 hackrf/tools/test_fix8t_diag_contract.py
+
+      - name: Validate Fix8u offline trigger geometry before firmware build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet numpy
+          python3 hackrf/tools/test_fix8u_sync_geometry.py
+          python3 hackrf/tools/test_fix8u_contract.py
+          python3 hackrf/tools/test_fix8d_fec_reference.py
+          python3 hackrf/tools/test_fix8e_post_pipeline.py
 
       - name: Remove non-stock MAC formatter dependency
         shell: bash

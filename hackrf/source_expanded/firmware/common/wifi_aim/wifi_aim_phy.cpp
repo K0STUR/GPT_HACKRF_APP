@@ -205,91 +205,76 @@ bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& ou
 bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1,
                                       float& cfo_step_r, float& cfo_step_i, float& score) {
     if (!s || count < 500) return false;
-    constexpr float kSyncThreshold = 0.15f;
-    constexpr std::size_t kMinRun = 4;
-    constexpr std::size_t kTimingBackoff = 8;
+    // Fix8u: hardware captures proved that a 2,048-sample pre-trigger plus a
+    // 2,200-sample search only inspected the first 152 samples of the trigger
+    // block. Cover the useful trigger geometry without scanning all 20,000.
+    constexpr std::size_t kSearchSamples = 5000u;
+    constexpr float kStfThreshold = 0.75f;
+    constexpr std::size_t kMinStfRun = 24u;
+    constexpr float kLtfTemplateThreshold = 0.30f;
 
     if (count <= 128u) return false;
-    const std::size_t limit = std::min<std::size_t>(count - 128u, static_cast<std::size_t>(2200u));
+    const std::size_t limit = std::min<std::size_t>(count - 128u, kSearchSamples);
 
-    bool in_run = false;
-    std::size_t run_start = 0;
-    std::size_t run_end = 0;
-    float run_peak = 0.0f;
-
-    std::size_t best_end = 0;
-    float best_peak = 0.0f;
-    bool have_best = false;
-
-    auto finish_run = [&]() {
-        if (in_run && (run_end - run_start + 1u) >= kMinRun && run_peak > best_peak) {
-            best_peak = run_peak;
-            best_end = run_end;
-            have_best = true;
+    // Standard STF admission: require a sustained normalized lag-16
+    // correlation before looking for an LTF. Overlapping noise peaks near the
+    // pre-trigger boundary no longer admit an unrelated q64 local maximum.
+    bool stf_in_run = false;
+    std::size_t stf_run_start = 0u, stf_run_end = 0u;
+    std::size_t best_stf_start = 0u, best_stf_end = 0u;
+    float stf_run_peak = 0.0f, best_stf_peak = 0.0f;
+    bool have_stf = false;
+    const std::size_t stf_limit = std::min<std::size_t>(limit, count - 80u);
+    auto finish_stf_run = [&]() {
+        if (stf_in_run && (stf_run_end - stf_run_start + 1u) >= kMinStfRun &&
+            stf_run_peak > best_stf_peak) {
+            best_stf_start = stf_run_start;
+            best_stf_end = stf_run_end;
+            best_stf_peak = stf_run_peak;
+            have_stf = true;
         }
-        in_run = false;
-        run_peak = 0.0f;
+        stf_in_run = false;
+        stf_run_peak = 0.0f;
     };
-
-    for (std::size_t d = 0; d < limit; ++d) {
-        float c16r = 0.0f, c16i = 0.0f;
-        float c64r = 0.0f, c64i = 0.0f;
-        float e0 = 0.0f, e16 = 0.0f, e64 = 0.0f;
-
+    for (std::size_t d = 0; d < stf_limit; ++d) {
+        float cr = 0.0f, ci = 0.0f, e0 = 0.0f, e16 = 0.0f;
         for (std::size_t n = 0; n < 64u; ++n) {
             const float ar = static_cast<float>(s[d + n].i);
             const float ai = static_cast<float>(s[d + n].q);
-            const float b16r = static_cast<float>(s[d + 16u + n].i);
-            const float b16i = static_cast<float>(s[d + 16u + n].q);
-            const float b64r = static_cast<float>(s[d + 64u + n].i);
-            const float b64i = static_cast<float>(s[d + 64u + n].q);
-
-            c16r += ar * b16r + ai * b16i;
-            c16i += ar * b16i - ai * b16r;
-            c64r += ar * b64r + ai * b64i;
-            c64i += ar * b64i - ai * b64r;
+            const float br = static_cast<float>(s[d + 16u + n].i);
+            const float bi = static_cast<float>(s[d + 16u + n].q);
+            cr += ar * br + ai * bi;
+            ci += ar * bi - ai * br;
             e0 += ar * ar + ai * ai;
-            e16 += b16r * b16r + b16i * b16i;
-            e64 += b64r * b64r + b64i * b64i;
+            e16 += br * br + bi * bi;
         }
-
         float q16 = 0.0f;
-        float q64 = 0.0f;
         if (e0 > 1.0f && e16 > 1.0f)
-            q16 = (c16r * c16r + c16i * c16i) / (e0 * e16);
-        if (e0 > 1.0f && e64 > 1.0f)
-            q64 = (c64r * c64r + c64i * c64i) / (e0 * e64);
-
-        q16 = std::max(0.0f, std::min(1.0f, q16));
-        q64 = std::max(0.0f, std::min(1.0f, q64));
-        const float metric = q64 * (1.0f - q16);
-
-        if (metric >= kSyncThreshold) {
-            if (!in_run) {
-                in_run = true;
-                run_start = d;
-                run_peak = metric;
+            q16 = (cr * cr + ci * ci) / (e0 * e16);
+        if (q16 >= kStfThreshold) {
+            if (!stf_in_run) {
+                stf_in_run = true;
+                stf_run_start = d;
+                stf_run_peak = q16;
             }
-            run_end = d;
-            if (metric > run_peak) run_peak = metric;
+            stf_run_end = d;
+            if (q16 > stf_run_peak) stf_run_peak = q16;
         } else {
-            finish_run();
+            finish_stf_run();
         }
     }
-    finish_run();
-
-    if (!have_best) {
-        score = best_peak;
+    finish_stf_run();
+    if (!have_stf) {
+        score = 0.0f;
         return false;
     }
 
-    // Offline reference candidate: use the strong 16-sample STF repetition
-    // before the LTF for coarse CFO. This gives the standard +/-Fs/32 capture
-    // range (~+/-625 kHz at 20 MS/s) before doing an absolute LTF template match.
-    const std::size_t nominal_d = best_end > kTimingBackoff ? best_end - kTimingBackoff : 0u;
-    const std::size_t stf_lo = best_end > 256u ? best_end - 256u : 0u;
-    std::size_t stf_hi = best_end > 96u ? best_end - 96u : 0u;
-    if (stf_hi < stf_lo) stf_hi = stf_lo;
+    const std::size_t ltf_search_lo = std::min<std::size_t>(limit, best_stf_start + 128u);
+    const std::size_t ltf_search_hi = std::min<std::size_t>(limit, best_stf_end + 176u);
+    if (ltf_search_hi <= ltf_search_lo) return false;
+
+    const std::size_t stf_lo = best_stf_start;
+    std::size_t stf_hi = best_stf_end;
     if (count > 80u) stf_hi = std::min<std::size_t>(stf_hi, count - 80u);
 
     float coarse_q = -1.0f, coarse_cr = 1.0f, coarse_ci = 0.0f;
@@ -322,33 +307,48 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
     const float coarse_step_r=coarse_root_r;
     const float coarse_step_i=-coarse_root_i;
 
-    // Absolute LTF timing. De-rotate each candidate by coarse CFO before
-    // correlating with the known 64-sample LTF. A constant phase per candidate
-    // does not affect the normalized correlation magnitude.
-    const std::size_t local_lo=nominal_d>48u?nominal_d-48u:0u;
-    const std::size_t local_hi=std::min<std::size_t>(nominal_d+48u,count>128u?count-128u:0u);
+    // Absolute LTF timing. De-rotate each candidate by coarse CFO and require
+    // both repeated 64-sample long symbols to match the known LTF. Scoring the
+    // weaker of the pair prevents LTF2 (followed by SIGNAL) from being selected
+    // as LTF1, and supplies an absolute admission threshold rather than merely
+    // accepting whichever local candidate happened to be best.
+    const std::size_t local_lo=ltf_search_lo;
+    const std::size_t local_hi=std::min<std::size_t>(ltf_search_hi,count-128u);
     float ref_e=0.0f;
     for (const auto& r:kLtf) ref_e+=r.r*r.r+r.i*r.i;
     float ref_best=-1.0f;
-    std::size_t best_d=nominal_d;
+    std::size_t best_d=local_lo;
     for (std::size_t d=local_lo;d<=local_hi;++d) {
-        float cr=0.0f,ci=0.0f,ey=0.0f,rr=1.0f,ri=0.0f;
-        for (std::size_t n=0;n<64u;++n) {
+        float cr0=0.0f,ci0=0.0f,ey0=0.0f;
+        float cr1=0.0f,ci1=0.0f,ey1=0.0f;
+        float rr=1.0f,ri=0.0f;
+        for (std::size_t n=0;n<128u;++n) {
             const float xr=static_cast<float>(s[d+n].i), xi=static_cast<float>(s[d+n].q);
             const float yr=xr*rr-xi*ri, yi=xr*ri+xi*rr;
-            const float kr=kLtf[n].r, ki=kLtf[n].i;
-            cr += kr*yr + ki*yi;
-            ci += kr*yi - ki*yr;
-            ey += yr*yr + yi*yi;
+            const auto& ref=kLtf[n&63u];
+            if (n<64u) {
+                cr0 += ref.r*yr + ref.i*yi;
+                ci0 += ref.r*yi - ref.i*yr;
+                ey0 += yr*yr + yi*yi;
+            } else {
+                cr1 += ref.r*yr + ref.i*yi;
+                ci1 += ref.r*yi - ref.i*yr;
+                ey1 += yr*yr + yi*yi;
+            }
             const float nr=rr*coarse_step_r-ri*coarse_step_i;
             const float ni=rr*coarse_step_i+ri*coarse_step_r;
             rr=nr; ri=ni;
         }
-        if (ey<=1.0f) continue;
-        const float q=(cr*cr+ci*ci)/(ref_e*ey);
+        if (ey0<=1.0f || ey1<=1.0f) continue;
+        const float q0=(cr0*cr0+ci0*ci0)/(ref_e*ey0);
+        const float q1=(cr1*cr1+ci1*ci1)/(ref_e*ey1);
+        const float q=std::min(q0,q1);
         if (q>ref_best) { ref_best=q; best_d=d; }
     }
-    if (best_d+128u>count) return false;
+    if (best_d+128u>count || ref_best<kLtfTemplateThreshold) {
+        score=std::max(0.0f,ref_best);
+        return false;
+    }
 
     // Fine residual CFO from the two repeated LTF symbols after accounting for
     // the coarse correction across their 64-sample separation.
@@ -383,7 +383,7 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
     cfo_step_r=coarse_step_r*fine_step_r-coarse_step_i*fine_step_i;
     cfo_step_i=coarse_step_r*fine_step_i+coarse_step_i*fine_step_r;
     ltf1=best_d;
-    score=ref_best>=0.0f?std::min(1.0f,ref_best):best_peak;
+    score=std::min(1.0f,ref_best);
     return true;
 }
 
