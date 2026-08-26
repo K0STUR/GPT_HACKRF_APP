@@ -1,0 +1,210 @@
+WiFi AIM Fix8u-DIAG — raport wykonanych prac i wnioski
+Data aktualizacji: 2026-08-26
+Gałąź: wifi-aim-fix8u-trigger-geometry
+Draft PR: https://github.com/K0STUR/GPT_HACKRF_APP/pull/27
+
+1. Cel prac
+
+Celem Fix8u było usunięcie fałszywego synchronizowania OFDM przy granicy
+pretriggera, bez naruszania poprawek PHY z Fix8s i bez usuwania potwierdzonego
+sprzętowo mechanizmu jednorazowego zapisu RAW IQ z Fix8t-DIAG.
+
+Procesor WifiAimProcessor zapisuje 2048 próbek przed wyzwoleniem energią oraz
+dalszą część capture do bufora 20000 próbek zespolonych. Poprzedni dekoder
+find_ltf() przeszukiwał jednak tylko min(count-128, 2200). Oznaczało to, że przy
+2048 próbkach pretriggera sprawdzał zaledwie około 152 próbek właściwego bloku
+po wyzwoleniu. Prawdziwy pakiet wywołujący trigger mógł mieć LTF dużo później.
+
+2. Analiza pierwszych czterech capture z Fix8t
+
+Skopiowano z karty SD i zweryfikowano bajt po bajcie pliki WAIM_000–003.C8/TXT.
+Każdy C8 ma dokładnie 40000 bajtów, czyli 20000 próbek int8 I/Q.
+
+Najważniejsze wyniki:
+
+- WAIM_000: raportowany LTF 2010, maksymalny STF 49,5%, najlepszy absolutny
+  LTF 4,4%.
+- WAIM_001: raportowany LTF 1997, maksymalny STF 72,4%, najlepszy absolutny
+  LTF 4,9%.
+- WAIM_002: raportowany LTF 2011, maksymalny STF 48,8%, najlepszy absolutny
+  LTF 5,5%.
+- WAIM_003: raportowany LTF 483, maksymalny STF 64,2%, najlepszy absolutny
+  LTF 3,9%.
+
+Golden IQ osiąga około 99% STF i około 99,6% absolutnego LTF. Pierwsze cztery
+capture nie zawierały poprawnej preambuły Wi-Fi. WAIM_000/001/002 blokowały się
+praktycznie dokładnie na granicy sample 2048. Były to false-locki na
+przejściu pretrigger -> trigger block, a nie prawidłowe pakiety przeoczone
+wyłącznie przez zbyt krótki zakres wyszukiwania.
+
+Wniosek: występowały dwa niezależne problemy:
+
+1) false trigger / interferencja była dopuszczana jako lokalnie najlepszy,
+   lecz bezwzględnie bardzo słaby kandydat;
+2) zakres do sample 2200 rzeczywiście uniemożliwiał znalezienie poprawnych
+   pakietów położonych później w buforze.
+
+3. Zmiany wykonane w Fix8u
+
+Zmodyfikowano wyłącznie część synchronizacji M4 OFDM niezbędną do diagnostyki.
+Demapper, FEC, Viterbi, descrambler i DATA fixes z Fix8s pozostawiono bez zmian.
+
+Wprowadzone zmiany:
+
+- ograniczony, ale rozszerzony zakres wyszukiwania do 5000 próbek;
+- prawdziwy znormalizowany STF gate oparty na standardowej korelacji lag-16;
+- wymaganie STF >= 0,75 utrzymanego przez minimum 24 kolejne pozycje;
+- wybór najsilniejszego poprawnego odcinka STF;
+- coarse CFO wyznaczany z zaakceptowanego STF;
+- po korekcji CFO bezwzględne dopasowanie obu 64-próbkowych symboli LTF do
+  znanego wzorca;
+- wynik LTF jest minimum z wyników obu symboli, co zapobiega wybraniu LTF2
+  jako LTF1;
+- minimalny próg absolutnego LTF pair = 0,30;
+- kandydat niespełniający STF/LTF nie trafia już do SIGNAL ani DATA Viterbi;
+- usunięto wcześniejsze dopuszczanie na podstawie lokalnego q64*(1-q16);
+- zachowano jednorazowy, zamrożony zapis 20000 próbek C8 oraz TXT z Fix8t.
+
+Progi 0,75 i 0,30 nie zostały wybrane ręcznie. Zostały skalibrowane na golden
+regression oraz czterech rzeczywistych capture. Golden miał minimalnie STF
+0,985 i LTF 0,946, podczas gdy stare pliki sprzętowe miały maksymalnie STF
+0,724 i LTF 0,093 w metryce użytej przez regression.
+
+4. Rozszerzony offline regression
+
+Dodano realistyczny generator capture z 2048-próbkowym pretriggerem i LTF w
+pozycjach:
+
+1800, 2048, 2200, 2500, 3000, 3500, 4096, 4500.
+
+Test obejmuje wszystkie osiem legacy OFDM rates oraz wariant czysty i z lekkim
+multipathem:
+
+8 rates x 8 pozycji x 2 warunki = 128 przypadków.
+
+Wynik:
+
+- 128/128 przypadków PASS;
+- 8/8 legacy rates PASS;
+- minimalny golden STF = 0,985;
+- minimalny golden LTF = 0,946;
+- stary search do 2200 nie znajduje poprawnych LTF w pozycjach 2500, 3000,
+  3500, 4096 i 4500.
+
+Dodatkowo ponownie przeszły:
+
+- Fix8t-DIAG one-shot C8 contract;
+- Fix8d FEC reference dla wszystkich 8 legacy rates;
+- Fix8e post-DATA reference pipeline;
+- Fix8u source/contract checks.
+
+5. Hardened build n_260808 i ABI
+
+Pierwszy hardened build poprawnie skompilował firmware i wygenerował PPMA o
+rozmiarze 32620 bajtów. Checksum, unresolved references i patch count były
+poprawne. Ostatni static gate wykrył jednak 179 stockowych symboli M0
+przesuniętych jednolicie o 4 bajty. Przyczyną było zmniejszenie granicy sekcji
+.text o 4 bajty po zmianie wspólnego dekodera.
+
+Nie osłabiono audytu. Dodano dokładnie dwie instrukcje NOP (4 bajty) w
+wspólnym dekoderze, z komentarzem dokumentującym wymaganie zachowania layoutu
+M0. Algorytm i wyniki PHY nie zmieniły się.
+
+Drugi pełny hardened build zakończył się PASS:
+
+- PPMA size: 32620 bajtów;
+- zapas do limitu 32768: 148 bajtów;
+- core_symbol_drift_count = 0;
+- drift_reference_count = 0;
+- patch_count = 0;
+- ambiguous_count = 0;
+- unresolved_count = 0;
+- final_checksum = 0x00000000;
+- RESULT = PASS.
+
+Gotowy plik:
+A_WiFiAIM_Fix8u_DIAG.ppma
+
+SHA-256:
+51E49DAEB8746759AFD7952A200766F921BF119C4A45769C3619B4E1A1001D16
+
+6. Sprzętowa weryfikacja Fix8u
+
+Po wgraniu Fix8u użytkownik wykonał kilka skanów. Dwa razy urządzenie znalazło
+AP. Na karcie SD powstały dwa nowe zestawy:
+
+- WAIM_004.C8/TXT;
+- WAIM_005.C8/TXT.
+
+Oba zostały skopiowane poza kartę i zweryfikowane SHA-256.
+
+WAIM_004:
+
+- kanał 8 / 2447 MHz;
+- LTF position = 3207, czyli 1159 próbek za granicą pretriggera;
+- maksymalny lag-16 STF = 99,7% @ 3097;
+- absolutny LTF pair = 54,0%;
+- CFO = -1295 Hz;
+- SQ zapisane przez firmware = 54;
+- wynik admission: PASS.
+
+WAIM_005:
+
+- kanał 8 / 2447 MHz;
+- LTF position = 3172, czyli 1124 próbki za granicą pretriggera;
+- maksymalny lag-16 STF = 97,2% @ 3060;
+- absolutny LTF pair = 56,6%;
+- CFO = +469 Hz;
+- SQ zapisane przez firmware = 56;
+- wynik admission: PASS.
+
+Stary limit 2200 nie znalazłby żadnego z tych dwóch pakietów. Nowe capture są
+bezpośrednim sprzętowym potwierdzeniem, że rozszerzenie geometrii do 5000 było
+konieczne i działa.
+
+Mechanizm Fix8t-DIAG celowo zamraża pierwszy interesujący capture, który dotarł
+do DATA Viterbi (stage >= 7). Nie musi to być dokładnie ten sam beacon/probe,
+który później został pokazany na liście AP. Po zapisaniu C8 skan jest wznawiany
+i może znaleźć AP w kolejnych ramkach. Oba nowe C8 doszły offline do DATA
+Viterbi, co potwierdza spójność zachowania sprzętowego z kodem.
+
+SHA-256 nowych C8:
+
+- WAIM_004.C8:
+  E4E6ABCB8ADDD64A2BBFED7B175D6B8BE42AD6896445249CB7A01CAF460BDB4B
+- WAIM_005.C8:
+  E8F925FF6571B1A31EF2C6985FB5C57BDAA67F6EF5095CD1668B13D8DC2C4178
+
+7. Ustalony problem z komunikatem IQ SAVED
+
+Pliki WAIM_004 i WAIM_005 dowodzą, że zapis zakończył się poprawnie, mimo że
+użytkownik nie zauważył tekstu "IQ SAVED 1".
+
+Przyczyna została znaleziona w UI:
+
+- on_diag_capture_done() poprawnie ustawia text_status na "IQ SAVED 1";
+- kolejna wiadomość telemetryczna podczas trwającego skanu natychmiast wywołuje
+  update_scan_status();
+- normalny tekst "S ... C... D... M..." zastępuje komunikat o zapisie.
+
+Jest to problem czytelności UI, a nie problem zapisu C8. Najlepsza kolejna
+poprawka to zatrzaśnięcie komunikatu na 2–3 sekundy albo stały mały znacznik
+"IQ1" w normalnym statusie skanu. Nie ma potrzeby ponawiania obecnych skanów.
+
+8. Stan końcowy i wnioski
+
+- false-lock przy sample 2048 został wyjaśniony i odcięty admission gate;
+- ograniczona geometria 2200 została potwierdzona jako realny błąd;
+- zakres 5000 znajduje prawdziwe pakiety później w buforze;
+- nowe STF/LTF gates poprawnie rozdzielają stare zakłócenia od prawdziwego Wi-Fi;
+- offline regression przechodzi 128/128 i 8/8 legacy rates;
+- Fix8s PHY/DATA fixes pozostały bez zmian;
+- Fix8t one-shot C8 działa na sprzęcie;
+- hardened n_260808 build i zero-drift ABI mają PASS;
+- dwa AP zostały znalezione na sprzęcie;
+- dwa nowe prawdziwe capture zostały zapisane i zweryfikowane;
+- pozostał wyłącznie kosmetyczny problem z czasem wyświetlania "IQ SAVED 1".
+
+PR #27 pozostaje draftem i nie został zmergowany. Dalsze decyzje można podjąć
+po ewentualnych dodatkowych testach z większej odległości, na kanałach 1/6/11
+lub po małej poprawce UI utrzymującej wskaźnik zapisu.
