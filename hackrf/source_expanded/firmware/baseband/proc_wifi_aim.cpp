@@ -306,10 +306,19 @@ void WifiAimProcessor::on_message(const Message* const message) {
                 diag_capture_saved_ = false;
             }
 
-            // M0 pauses channel hopping while a one-shot dump is active. Keep
-            // the frozen bytes intact even if a late UI control message arrives.
+            // M0 pauses channel hopping while a one-shot dump is active. A
+            // disable while still Frozen is the ABI-safe cancellation path for
+            // an SD/open error before CaptureThread can send CaptureConfig.
             if (diag_capture_pending_) {
                 enabled_ = m.start;
+                if (!m.start && state_ == State::Frozen) {
+                    diag_capture_pending_ = false;
+                    diag_capture_saved_ = false;
+                    capture_count_ = 0;
+                    pretrigger_count_ = 0;
+                    state_ = State::Waiting;
+                    send_diag_state();
+                }
                 break;
             }
 

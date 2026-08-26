@@ -336,13 +336,15 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
 
     const auto dir_error = ensure_directory(u"WIFI_DIAG");
     if (dir_error.code()) {
-        baseband::capture_stop();
+        set_decoder(false);
+        set_decoder(true);
         text_status.set("IQ ERR SD");
         return;
     }
     diag_c8_path_ = next_filename_matching_pattern(u"WIFI_DIAG/WAIM_???.C8");
     if (diag_c8_path_.empty()) {
-        baseband::capture_stop();
+        set_decoder(false);
+        set_decoder(true);
         text_status.set("IQ ERR SD");
         return;
     }
@@ -356,7 +358,8 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
     const auto create_error = writer->create(diag_c8_path_);
     if (create_error.is_valid()) {
         diag_capture_active_ = false;
-        baseband::capture_stop();
+        set_decoder(false);
+        set_decoder(true);
         text_status.set("IQ ERR SD");
         return;
     }
