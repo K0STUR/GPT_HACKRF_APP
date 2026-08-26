@@ -56,8 +56,6 @@ class BoundedC8Writer final : public stream::Writer {
             remaining_ -= keep;
         }
         if (!remaining_ && !notified_) {
-            const auto sync_error = file_.sync();
-            if (sync_error.is_valid()) return sync_error.value();
             notified_ = true;
             CaptureThreadDoneMessage message{};
             EventDispatcher::send_message(message);
@@ -337,13 +335,13 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
     const auto dir_error = ensure_directory(u"WIFI_DIAG");
     if (dir_error.code()) {
         baseband::capture_stop();
-        text_status.set("IQ ERR " + dir_error.what());
+        text_status.set("IQ ERR SD");
         return;
     }
     diag_c8_path_ = next_filename_matching_pattern(u"WIFI_DIAG/WAIM_???.C8");
     if (diag_c8_path_.empty()) {
         baseband::capture_stop();
-        text_status.set("IQ ERR filenames");
+        text_status.set("IQ ERR SD");
         return;
     }
     diag_txt_path_ = diag_c8_path_;
@@ -356,7 +354,7 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
     if (create_error.is_valid()) {
         diag_capture_active_ = false;
         baseband::capture_stop();
-        text_status.set("IQ ERR " + create_error.value().what());
+        text_status.set("IQ ERR SD");
         return;
     }
     diag_capture_thread_ = std::make_unique<CaptureThread>(
@@ -376,13 +374,13 @@ void WifiAimView::on_diag_capture_done(const CaptureThreadDoneMessage& message) 
     diag_capture_thread_.reset();
     diag_capture_active_ = false;
     if (message.error) {
-        text_status.set("IQ ERR " + File::Error{message.error}.what());
+        text_status.set("IQ ERR SD");
         return;
     }
 
     const auto metadata_error = write_diag_metadata();
     if (metadata_error.is_valid()) {
-        text_status.set("IQ META ERR " + metadata_error.value().what());
+        text_status.set("IQ ERR SD");
         return;
     }
     if (diag_saved_count_ != 0xFFu) ++diag_saved_count_;
@@ -428,10 +426,8 @@ Optional<File::Error> WifiAimView::write_diag_metadata() {
 
     const auto write_result = metadata.write(text, pos);
     if (write_result.is_error()) return write_result.error();
-
-    const auto sync_error = metadata.sync();
     metadata.close();
-    return sync_error;
+    return {};
 }
 
 void WifiAimView::push_target_level(int16_t x) {
