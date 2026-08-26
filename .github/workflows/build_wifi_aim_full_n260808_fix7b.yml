@@ -40,6 +40,12 @@ jobs:
             exit 1
           fi
 
+      - name: Validate Fix8t one-shot diagnostic contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 hackrf/tools/test_fix8t_diag_contract.py
+
       - name: Remove non-stock MAC formatter dependency
         shell: bash
         run: |

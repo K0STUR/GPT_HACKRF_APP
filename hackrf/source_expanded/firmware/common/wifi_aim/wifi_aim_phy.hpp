@@ -24,6 +24,8 @@ struct M4ApReport {
 struct M4OfdmTrace {
     uint8_t stage{0};
     uint8_t ltf_score{0};      // Fix8c repetition sync quality, 0..100
+    uint16_t ltf_position{0};  // Fix8t: absolute LTF1 sample index in the frozen capture
+    int32_t cfo_hz{0};         // Fix8t: estimated carrier offset at 20 MS/s
     uint8_t rate_raw{0xFF};    // parser representation of R1..R4
     uint16_t length{0};        // decoded PSDU length when available
 

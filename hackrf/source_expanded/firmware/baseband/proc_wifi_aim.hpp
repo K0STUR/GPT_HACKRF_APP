@@ -6,10 +6,12 @@
 #include "message.hpp"
 #include "wifi_aim/wifi_aim_phy.hpp"
 #include "wifi_aim_wire.hpp"
+#include "stream_input.hpp"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 class WifiAimProcessor : public BasebandProcessor {
    public:
@@ -22,7 +24,7 @@ class WifiAimProcessor : public BasebandProcessor {
     static constexpr std::size_t kPretriggerSamples = 2'048; // one DMA block of history
     static constexpr uint16_t kDiagCaptureStride = 16;       // throttle failed-capture telemetry
 
-    enum class State : uint8_t { Warmup, Waiting, Capturing, Cooldown };
+    enum class State : uint8_t { Warmup, Waiting, Capturing, Cooldown, Frozen, Dumping };
 
     bool enabled_{false};
     State state_{State::Warmup};
@@ -38,6 +40,14 @@ class WifiAimProcessor : public BasebandProcessor {
     std::size_t capture_count_{0};
     uint16_t capture_attempts_{0};
     uint16_t decode_successes_{0};
+
+    // Fix8t-DIAG freezes one PHY-interesting capture (DATA Viterbi reached)
+    // and drains it through stock CaptureConfig/StreamInput only after the
+    // 20,000-sample RAM capture is complete. No live 20 MS/s SD stream exists.
+    bool diag_capture_saved_{false};
+    bool diag_capture_pending_{false};
+    std::size_t diag_dump_offset_{0};
+    std::unique_ptr<StreamInput> diag_stream_{};
 
     // Fix8a raw-IQ preamble probe. These counters answer whether captures
     // resemble 802.11 OFDM/DSSS before changing the actual Wi-Fi decoder.
@@ -78,6 +88,7 @@ class WifiAimProcessor : public BasebandProcessor {
     void reset_probe_diag();
     void fill_probe_diag(wifiaim::WireApReport& wire) const;
     void send_diag_state();
+    void send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace);
     void send_wire_report(const wifiaim::WireApReport& wire, FskPacketData& storage);
 
     // These threads auto-start in their constructors. Keep them LAST so every
