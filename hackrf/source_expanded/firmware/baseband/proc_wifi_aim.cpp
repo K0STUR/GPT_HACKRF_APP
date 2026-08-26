@@ -131,11 +131,6 @@ void WifiAimProcessor::send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace
     wire.ssid[2] = static_cast<char>(trace.ltf_score);      // SQ for this capture
     std::memcpy(&wire.ssid[3], &trace.ltf_position, sizeof(trace.ltf_position));
     std::memcpy(&wire.ssid[5], &trace.cfo_hz, sizeof(trace.cfo_hz));
-    wire.ssid[9] = static_cast<char>(trace.rate_raw);
-    std::memcpy(&wire.ssid[10], &trace.length, sizeof(trace.length));
-    wire.ssid[12] = static_cast<char>(trace.stage);
-    wire.ssid[13] = static_cast<char>(trace.post_stage);
-    wire.ssid[14] = static_cast<char>(trace.service_errors);
     send_wire_report(wire, diag_packet_);
 }
 
@@ -242,6 +237,11 @@ void WifiAimProcessor::execute(const buffer_c8_t& buffer) {
                 const auto* bytes = reinterpret_cast<const uint8_t*>(capture_.data());
                 diag_dump_offset_ += diag_stream_->write(
                     bytes + diag_dump_offset_, total_bytes - diag_dump_offset_);
+            } else {
+                // CaptureThread may already be asleep in BufferExchange::get()
+                // when M0 asks it to stop. Feed frozen (never live) padding so
+                // it wakes, observes termination, and lets CaptureConfig close.
+                diag_stream_->write(capture_.data(), 400u);
             }
         }
         return;

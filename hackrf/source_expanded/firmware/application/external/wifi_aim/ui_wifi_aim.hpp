@@ -5,6 +5,7 @@
 #include "ui_receiver.hpp"
 #include "message.hpp"
 #include "file.hpp"
+#include "capture_thread.hpp"
 #include "wifi_aim_wire.hpp"
 
 #include <array>
@@ -13,8 +14,6 @@
 #include <string>
 
 namespace ui::external_app::wifi_aim {
-
-class WifiAimDiagCaptureThread;
 
 enum class DecodeMode : uint8_t { Off, Auto, On };
 
@@ -30,8 +29,6 @@ struct ApEntry {
 
 struct DiagCaptureMetadata {
     uint8_t channel{0};
-    uint16_t capture_total{0};
-    uint16_t decode_total{0};
     std::array<uint8_t, 8> ofdm_stage_hits{};
     uint8_t sq{0};
     uint8_t lna_gain_db{0};
@@ -39,11 +36,6 @@ struct DiagCaptureMetadata {
     bool rf_amp{false};
     uint16_t ltf_position{0};
     int32_t cfo_hz{0};
-    uint8_t rate_raw{0xFF};
-    uint16_t length{0};
-    uint8_t stage{0};
-    uint8_t post_stage{0};
-    uint8_t service_errors{0xFF};
 };
 
 class WifiAimView final : public View {
@@ -76,7 +68,7 @@ class WifiAimView final : public View {
     DiagCaptureMetadata diag_metadata_{};
     std::filesystem::path diag_c8_path_{};
     std::filesystem::path diag_txt_path_{};
-    std::unique_ptr<WifiAimDiagCaptureThread> diag_capture_thread_{};
+    std::unique_ptr<CaptureThread> diag_capture_thread_{};
 
     // Fix7b/Fix7c receive M4 diagnostics through the already-existing
     // FSKPacket handler, avoiding a new HunterTrigger registration in M0.

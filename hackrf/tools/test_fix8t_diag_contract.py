@@ -13,11 +13,12 @@ PHY = (ROOT / "common" / "wifi_aim" / "wifi_aim_phy.cpp").read_text()
 # forwarding in the diagnostic state.
 assert "kCaptureSamples = 20'000" in (ROOT / "baseband" / "proc_wifi_aim.hpp").read_text()
 assert "kCaptureBytes = 20'000u * 2u" in UI
-assert "kWriteSize = 400u" in UI
+assert "std::move(writer), 400u, 2u" in UI
 assert 40_000 % 400 == 0
 assert "ofdm_trace.stage >= 7u" in PROC
 assert "if (state_ == State::Frozen) return;" in PROC
 assert "capture_.data()" in PROC and "diag_stream_->write" in PROC
+assert "consume M4's drain padding without writing it" in UI
 
 # C8 and all requested metadata fields must be emitted.
 for field in (
