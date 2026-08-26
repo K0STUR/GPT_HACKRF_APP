@@ -67,32 +67,9 @@ jobs:
           from pathlib import Path
           ui=Path('wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp')
           s=ui.read_text()
-          anchor='namespace ui::external_app::wifi_aim {'
-          assert anchor in s
-          helper=r'''
-
-          static std::string wifi_aim_local_mac_string(const uint8_t* mac, uint8_t length, bool noColon) {
-              if (!mac || length == 0) return {};
-              if (length > 6) length = 6;
-              constexpr char digits[] = "0123456789ABCDEF";
-              char out[18]{};
-              size_t pos = 0;
-              for (uint8_t i = 0; i < length; ++i) {
-                  if (i && !noColon) out[pos++] = ':';
-                  out[pos++] = digits[(mac[i] >> 4) & 0x0F];
-                  out[pos++] = digits[mac[i] & 0x0F];
-              }
-              out[pos] = '\0';
-              return std::string(out);
-          }
-          '''
-          s=s.replace(anchor,anchor+helper,1)
-          n=s.count('to_string_mac_address(')
-          assert n > 0
-          s=s.replace('to_string_mac_address(','wifi_aim_local_mac_string(')
           assert 'to_string_mac_address(' not in s
           ui.write_text(s)
-          print('patched_mac_calls=', n)
+          print('mac_formatter_dependency=absent')
           PY
 
       - name: Checkout exact stock Mayhem n_260808 twice
