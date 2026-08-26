@@ -79,16 +79,34 @@ class WifiAimProcessor : public BasebandProcessor {
     // a freshly queued AP payload before M0 consumes it.
     FskPacketData ap_packet_{};
     FskPacketData diag_packet_{};
+    FskPacketData profile_rejected_packet_{};
+    FskPacketData profile_accepted_packet_{};
 
-    uint32_t block_power(const buffer_c8_t& buffer) const;
+    struct EnergyPowers {
+        uint32_t full{0};
+        uint32_t max256{0};
+        uint32_t max128{0};
+    };
+    std::array<uint16_t, wifiaim::PROFILE_COUNTER_COUNT> profile_counts_{};
+    wifiaim::ProfilerStatsWire rejected_stats_{};
+    wifiaim::ProfilerStatsWire accepted_stats_{};
+
+    EnergyPowers block_powers(const buffer_c8_t& buffer) const;
     void remember_pretrigger(const buffer_c8_t& buffer);
     void copy_into_capture(const buffer_c8_t& buffer);
     void finish_capture();
     void reset_detector();
     void reset_probe_diag();
+    void reset_profiler();
+    void update_profile_stats(wifiaim::ProfilerStatsWire& stats,
+                              const wifiaim::M4OfdmTrace& trace, uint16_t clipped);
+    void fill_profile_counters(wifiaim::WireApReport& wire) const;
+    void fill_profile_stats(wifiaim::WireApReport& wire, uint8_t subtype,
+                            const wifiaim::ProfilerStatsWire& stats) const;
+    void send_profiler_snapshot();
     void fill_probe_diag(wifiaim::WireApReport& wire) const;
     void send_diag_state();
-    void send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace);
+    void send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace, uint16_t clipped);
     void send_wire_report(const wifiaim::WireApReport& wire, FskPacketData& storage);
 
     // These threads auto-start in their constructors. Keep them LAST so every

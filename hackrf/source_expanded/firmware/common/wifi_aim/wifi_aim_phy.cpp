@@ -203,7 +203,10 @@ bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& ou
 }
 
 bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1,
-                                      float& cfo_step_r, float& cfo_step_i, float& score) {
+                                      float& cfo_step_r, float& cfo_step_i, float& score,
+                                      float& stf_score, bool& stf_admitted) {
+    stf_score = 0.0f;
+    stf_admitted = false;
     if (!s || count < 500) return false;
     // This common decoder is linked into both the M4 image and the stock M0
     // audit image. Keep the M0 .text boundary identical to Fix8t so unrelated
@@ -255,6 +258,7 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
         float q16 = 0.0f;
         if (e0 > 1.0f && e16 > 1.0f)
             q16 = (cr * cr + ci * ci) / (e0 * e16);
+        if (q16 > stf_score) stf_score = q16;
         if (q16 >= kStfThreshold) {
             if (!stf_in_run) {
                 stf_in_run = true;
@@ -272,6 +276,7 @@ bool M4OfdmWifiDecoder::find_ltf(const IQ8* s, std::size_t count, std::size_t& l
         score = 0.0f;
         return false;
     }
+    stf_admitted = true;
 
     const std::size_t ltf_search_lo = std::min<std::size_t>(limit, best_stf_start + 128u);
     const std::size_t ltf_search_hi = std::min<std::size_t>(limit, best_stf_end + 176u);
@@ -601,8 +606,12 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     out={}; out.packet_db_x10=-1200;
     if (trace) *trace = {};
     std::size_t L=0; float cfo_step_r=1.0f, cfo_step_i=0.0f, ltf_score=0.0f;
-    const bool ltf_ok = find_ltf(s,count,L,cfo_step_r,cfo_step_i,ltf_score);
+    float stf_score=0.0f; bool stf_admitted=false;
+    const bool ltf_ok = find_ltf(s,count,L,cfo_step_r,cfo_step_i,ltf_score,stf_score,stf_admitted);
     if (trace) {
+        const float qs = std::max(0.0f, std::min(1.0f, stf_score));
+        trace->stf_score = static_cast<uint8_t>(qs * 100.0f + 0.5f);
+        trace->stf_admitted = stf_admitted;
         const float q = std::max(0.0f, std::min(1.0f, ltf_score));
         trace->ltf_score = static_cast<uint8_t>(q * 100.0f + 0.5f);
         trace->ltf_position = static_cast<uint16_t>(std::min<std::size_t>(L, 0xFFFFu));

@@ -23,6 +23,8 @@ struct M4ApReport {
 // 5=RATE, 6=LENGTH, 7=DATA Viterbi, 8=MAC beacon/probe parser.
 struct M4OfdmTrace {
     uint8_t stage{0};
+    uint8_t stf_score{0};      // Fix8v maximum normalized lag-16 score, 0..100
+    bool stf_admitted{false};  // sustained Fix8u STF gate passed
     uint8_t ltf_score{0};      // Fix8c repetition sync quality, 0..100
     uint16_t ltf_position{0};  // Fix8t: absolute LTF1 sample index in the frozen capture
     int32_t cfo_hz{0};         // Fix8t: estimated carrier offset at 20 MS/s
@@ -75,7 +77,8 @@ class M4OfdmWifiDecoder {
     std::array<uint64_t, kMaxDecodedBits> survivor_{};
     std::array<uint8_t, kMaxPrefixBytes + 8> bytes_{};
 
-    bool find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1, float& cfo_step_r, float& cfo_step_i, float& score);
+    bool find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1, float& cfo_step_r,
+                  float& cfo_step_i, float& score, float& stf_score, bool& stf_admitted);
     void load_fft(const IQ8* s, std::size_t start, std::size_t origin, float cfo_step_r, float cfo_step_i);
     void fft64();
     FCpx equalized(int k) const;

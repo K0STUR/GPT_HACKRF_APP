@@ -1,0 +1,114 @@
+WiFi AIM Fix8v-DIAG — dziennik implementacji i plan testu sprzętowego
+Data: 2026-08-27
+
+STATUS
+======
+Fix8u nie jest uznany za zakończony. Wykrywanie AP na sprzęcie jest nadal
+nieregularne. PR #27 pozostaje draftem i nie wolno go scalać przed dalszymi
+testami sprzętowymi. Fix8v jest osobnym, pomiarowym profilerem niezawodności;
+nie jest kolejnym tuningiem PHY.
+
+CEL FIX8V
+=========
+Zmierzono osobno miejsca, w których znikają przechwycone pakiety:
+
+1. production energy trigger (pełna średnia bloku DMA),
+2. shadow max-power/256 i shadow max-power/128,
+3. admission STF,
+4. admission LTF,
+5. SIGNAL Viterbi,
+6. SIGNAL parity,
+7. prawidłowe RATE/LENGTH,
+8. DATA Viterbi,
+9. SERVICE,
+10. protocol-version,
+11. management type,
+12. Beacon/Probe subtype,
+13. SSID parse,
+14. final AP.
+
+Wprowadzono 10-sekundowy test jednego wybranego kanału CH 1–13 bez hoppingu.
+Interfejs ma strony COUNT, REJ i ACC. REJ/ACC pokazują oddzielnie liczbę
+capture, STF min/mean/max, LTF min/mean/max, CFO min/mean/max oraz clipping
+(liczba składowych I/Q i procent).
+
+CO ZOSTAŁO CELOWO BEZ ZMIAN
+===========================
+- production energy trigger nadal używa pełnoblokowego block_power i progu
+  noise*1.25 + 32;
+- warianty 256/128 są wyłącznie licznikami shadow i nie uruchamiają capture;
+- Fix8u STF/LTF search, progi i synchronizacja nie zostały dostrojone;
+- demapper, Viterbi, SERVICE, MAC i pozostałe poprawki Fix8s pozostają bez zmian;
+- Fix8t one-shot C8 nadal zamraża 20 000 complex samples w RAM i dopiero potem
+  zapisuje dokładnie 40 000 bajtów C8 na SD;
+- do TXT one-shot dodano tylko diagnostyczne STF i clipping.
+
+OFFLINE ENERGY-TRIGGER REGRESSION
+=================================
+Symulator obejmuje wszystkie 8 legacy OFDM rates, 16 początków pakietu w bloku
+2048 samples, siedem amplitud oraz pięć poziomów gain. Osobno bada czysty szum,
+krótkie 128-sample impulsy i clipping.
+
+Ustalenia:
+- pełnoblokowa średnia ma rzeczywisty blind region zależny od położenia i
+  amplitudy pakietu;
+- max/256 odzyskuje dużą część słabych/krótkich pakietów w symulacji;
+- max/128 jest czulszy, ale wykazuje większe ryzyko false triggers, zwłaszcza
+  przy wysokim gain i krótkich impulsach;
+- dlatego żadna zmiana triggera nie została wdrożona produkcyjnie. Fix8v ma
+  najpierw zmierzyć na sprzęcie stosunek dodatkowych shadow hits do prawdziwych
+  przejść STF/LTF i final AP.
+
+W istniejących hardware C8:
+- WAIM_004: STF ok. 99.7%, LTF ok. 54.0%, clipping 7541/40000 = 18.852%;
+- WAIM_005: STF ok. 97.2%, LTF ok. 56.6%, clipping 0/40000.
+To potwierdza, że gain/clipping trzeba mierzyć osobno, a nie zakładać, że większy
+gain zawsze poprawia detekcję.
+
+REGRESSION STATUS PRZED BUILD
+=============================
+- Fix8u realistic pretrigger geometry: PASS 128/128 przypadków;
+- 8/8 legacy OFDM rates: PASS;
+- pozycje LTF 1800, 2048, 2200, 2500, 3000, 3500, 4096, 4500: PASS;
+- Fix8t one-shot C8 contract: PASS;
+- Fix8d FEC reference: PASS;
+- Fix8e post-DATA pipeline: PASS;
+- Fix8v profiler contract: PASS;
+- Fix8v energy sweep: PASS.
+
+ŚRODOWISKO TESTOWE — WIFI ANALYZER
+==================================
+Zdjęcie przekazane 2026-08-27 pokazuje pasmo 2.4 GHz w miejscu testu. Najlepszy
+pierwszy kanał do profilowania to CH 8: dwa najsilniejsze widoczne AP mają około
+-70 i -73 dBm, a równocześnie występuje kilka słabszych, nakładających się sieci.
+To pozwoli rozdzielić gubienie silnych beaconów od false triggers/interferencji.
+CH 1 jest dobrym drugim pomiarem porównawczym, ale widoczne sygnały są słabsze
+(około -80 dBm i niżej).
+
+PLAN TESTU SPRZĘTOWEGO
+=====================
+1. Ustawić gainy jak w teście Fix8u i wybrać CH 8 przyciskami CH-/CH+.
+2. Uruchomić RUN 10s i nie zmieniać kanału ani gainów w trakcie.
+3. Po zakończeniu spisać lub sfotografować strony COUNT, REJ i ACC.
+4. Powtórzyć CH 8 z niższym LNA/VGA, jeśli clipping jest znaczący.
+5. Powtórzyć ten sam zestaw na CH 1.
+6. Jeśli pojawi się IQ SAVED 1, zachować nowy C8/TXT do analizy; transfer jest
+   jednorazowy z zamrożonego RAM, nie jest live streamem 20 MS/s.
+
+INTERPRETACJA
+=============
+- shadow256 >> ENERGY, a kolejne STF/LTF rosną: pełnoblokowy trigger gubi
+  prawdziwe pakiety i 256 jest kandydatem do osobnego regression;
+- shadow256/128 >> ENERGY, ale STF prawie nie rośnie: dodatkowe trafienia to
+  głównie interferencja/false triggers;
+- ENERGY >> STF: problem przed synchronizacją lub captures bez OFDM STF;
+- STF >> LTF: geometria/jakość LTF albo CFO;
+- LTF >> SIGNAL/PARITY/RATE-LENGTH: problem SIGNAL;
+- DATA >> SERVICE/MAC: problem po FEC/MAC, który Fix8v tylko mierzy;
+- duży clipping w REJ przy dobrym STF: najpierw obniżyć LNA/VGA, nie zmieniać PHY.
+
+BUILD/PR
+========
+Build hardened n_260808, ABI/static audit, SHA-256 i gotowy PPMA należy uznać za
+ważne dopiero po zielonym CI. Fix8v będzie osobnym draft PR bazującym na branchu
+Fix8u. Ani Fix8u PR #27, ani Fix8v nie mogą zostać zmergowane przed hardware test.

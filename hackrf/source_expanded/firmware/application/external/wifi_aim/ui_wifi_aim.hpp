@@ -31,11 +31,13 @@ struct DiagCaptureMetadata {
     uint8_t channel{0};
     std::array<uint8_t, 8> ofdm_stage_hits{};
     uint8_t sq{0};
+    uint8_t stf{0};
     uint8_t lna_gain_db{0};
     uint8_t vga_gain_db{0};
     bool rf_amp{false};
     uint16_t ltf_position{0};
     int32_t cfo_hz{0};
+    uint16_t clipped_components{0};
 };
 
 class WifiAimView final : public View {
@@ -78,6 +80,10 @@ class WifiAimView final : public View {
     uint16_t scan_capture_base_{0};
     uint16_t scan_decode_base_{0};
     uint8_t diag_ack_channel_{0};
+    std::array<uint16_t, wifiaim::PROFILE_COUNTER_COUNT> profile_counts_{};
+    wifiaim::ProfilerStatsWire profile_rejected_{};
+    wifiaim::ProfilerStatsWire profile_accepted_{};
+    uint8_t profile_page_{0};
 
     std::array<int16_t,16> target_levels_{};
     std::size_t target_level_count_{0};
@@ -100,12 +106,12 @@ class WifiAimView final : public View {
     Text text_peak{{UI_POS_X(1), UI_POS_Y(11), 224,16}, "PEAK: -"};
     Text text_delta{{UI_POS_X(1), UI_POS_Y(12), 224,16}, "DELTA REF: -"};
 
-    Button button_scan{{UI_POS_X(1), UI_POS_Y(14), 70,28}, "SCAN"};
-    Button button_prev{{UI_POS_X(10), UI_POS_Y(14), 62,28}, "< AP"};
-    Button button_next{{UI_POS_X(20), UI_POS_Y(14), 62,28}, "AP >"};
-    Button button_target{{UI_POS_X(1), UI_POS_Y(17), 70,28}, "TARGET"};
-    Button button_ref{{UI_POS_X(10), UI_POS_Y(17), 62,28}, "REF"};
-    Button button_mode{{UI_POS_X(20), UI_POS_Y(17), 62,28}, "AUTO"};
+    Button button_scan{{UI_POS_X(1), UI_POS_Y(14), 70,28}, "RUN 10s"};
+    Button button_prev{{UI_POS_X(10), UI_POS_Y(14), 62,28}, "CH -"};
+    Button button_next{{UI_POS_X(20), UI_POS_Y(14), 62,28}, "CH +"};
+    Button button_target{{UI_POS_X(1), UI_POS_Y(17), 70,28}, "COUNT"};
+    Button button_ref{{UI_POS_X(10), UI_POS_Y(17), 62,28}, "REJ"};
+    Button button_mode{{UI_POS_X(20), UI_POS_Y(17), 62,28}, "ACC"};
 
     MessageHandlerRegistration frame_sync_handler_{
         Message::ID::DisplayFrameSync,
@@ -130,9 +136,11 @@ class WifiAimView final : public View {
     uint16_t scan_decode_delta() const;
     void update_ap_display();
     void update_aim_display(int16_t live_x10);
+    void update_profile_display();
     void push_target_level(int16_t level_x10);
     int16_t target_average() const;
     std::string db10(int16_t x10) const;
+    std::string signed_dec(int32_t value) const;
     std::string mac(const std::array<uint8_t,6>& b) const;
 };
 
