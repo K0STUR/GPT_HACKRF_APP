@@ -348,7 +348,6 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
     diag_txt_path_.replace_extension(u".TXT");
 
     diag_capture_active_ = true;
-    text_status.set("IQ SAVING...");
     auto writer = std::make_unique<BoundedC8Writer>();
     const auto create_error = writer->create(diag_c8_path_);
     if (create_error.is_valid()) {
@@ -383,8 +382,7 @@ void WifiAimView::on_diag_capture_done(const CaptureThreadDoneMessage& message) 
         text_status.set("IQ ERR SD");
         return;
     }
-    if (diag_saved_count_ != 0xFFu) ++diag_saved_count_;
-    text_status.set("IQ SAVED " + to_string_dec_uint(diag_saved_count_));
+    text_status.set("IQ SAVED 1");
 }
 
 Optional<File::Error> WifiAimView::write_diag_metadata() {

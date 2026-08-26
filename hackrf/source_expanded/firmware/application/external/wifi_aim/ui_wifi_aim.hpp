@@ -64,7 +64,6 @@ class WifiAimView final : public View {
     uint32_t timer_ms_{0};
     uint32_t auto_phase_ms_{0};
     bool diag_capture_active_{false};
-    uint8_t diag_saved_count_{0};
     DiagCaptureMetadata diag_metadata_{};
     std::filesystem::path diag_c8_path_{};
     std::filesystem::path diag_txt_path_{};
