@@ -1,6 +1,7 @@
 #include "ui_wifi_aim.hpp"
 
 #include "baseband_api.hpp"
+#include "event_m0.hpp"
 #include "receiver_model.hpp"
 #include "string_format.hpp"
 
@@ -18,7 +19,57 @@ rf::Frequency channel_frequency(uint8_t ch) {
 bool same_bssid(const std::array<uint8_t,6>& a, const uint8_t* b) {
     return std::memcmp(a.data(), b, 6) == 0;
 }
+void meta_text(char* out, std::size_t& pos, const char* text) {
+    while (*text) out[pos++] = *text++;
 }
+void meta_uint(char* out, std::size_t& pos, uint32_t value) {
+    char reverse[10];
+    std::size_t count = 0;
+    do {
+        reverse[count++] = static_cast<char>('0' + value % 10u);
+        value /= 10u;
+    } while (value);
+    while (count) out[pos++] = reverse[--count];
+}
+void meta_int(char* out, std::size_t& pos, int32_t value) {
+    if (value < 0) {
+        out[pos++] = '-';
+        meta_uint(out, pos, static_cast<uint32_t>(-static_cast<int64_t>(value)));
+    } else {
+        meta_uint(out, pos, static_cast<uint32_t>(value));
+    }
+}
+}
+
+class BoundedC8Writer final : public stream::Writer {
+   public:
+    static constexpr std::size_t kCaptureBytes = 20'000u * 2u;
+    explicit BoundedC8Writer(volatile bool* done) : done_{done} {}
+    Optional<File::Error> create(const std::filesystem::path& path) {
+        return file_.create(path);
+    }
+
+    File::Result<File::Size> write(const void* const buffer, const File::Size bytes) override {
+        const auto keep = std::min<File::Size>(bytes, remaining_);
+        if (keep) {
+            auto result = file_.write(buffer, keep);
+            if (result.is_error()) return result.error();
+            remaining_ -= keep;
+        }
+        if (!remaining_ && !notified_) {
+            notified_ = true;
+            *done_ = true;
+        }
+        // Once 40 kB is complete, consume M4's drain padding without writing it.
+        return File::Size{bytes};
+    }
+
+   private:
+    File file_{};
+    File::Size remaining_{kCaptureBytes};
+    bool notified_{false};
+    volatile bool* done_{nullptr};
+};
 
 WifiAimView::WifiAimView(NavigationView& nav) : nav_(nav) {
     target_levels_.fill(-1200);
@@ -49,6 +100,9 @@ WifiAimView::WifiAimView(NavigationView& nav) : nav_(nav) {
 }
 
 WifiAimView::~WifiAimView() {
+    // Let a bounded one-shot transfer finish (or observe termination) before
+    // shutting down M4, otherwise the worker could remain asleep on its FIFO.
+    diag_capture_thread_.reset();
     set_decoder(false);
     receiver_model.disable();
     baseband::shutdown();
@@ -138,7 +192,10 @@ void WifiAimView::cycle_mode() {
 
 void WifiAimView::on_frame_sync() {
     constexpr uint32_t frame_ms = 17;
+    if (diag_capture_active_ && diag_capture_done_) on_diag_capture_done();
     if (scanning_) {
+        // Do not retune while the selected 1 ms buffer is being drained to SD.
+        if (diag_capture_active_) return;
         timer_ms_ += frame_ms;
         // Give normal ~100 ms beacon intervals several chances per channel.
         if (timer_ms_ >= 1000) {
@@ -168,6 +225,13 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
     diag_decode_total_ = static_cast<uint16_t>(w.decode_total & 0x3FFFu);
     diag_ack_channel_ = w.channel;
     update_scan_status();
+
+    // Fix8t-DIAG capture-ready subtype. M4 is frozen and will ignore live RF
+    // until the bounded C8 worker has consumed exactly 20,000 IQ samples.
+    if ((w.flags & 0x80u) && w.ssid_len == 0xFAu) {
+        start_diag_capture(w);
+        return;
+    }
 
     // bit7 marks a diagnostics-only packet; it is not an access point report.
     if (w.flags & 0x80u) {
@@ -253,6 +317,121 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
         update_ap_display();
         update_done_status();
     }
+}
+
+void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
+    if (diag_capture_active_) return;
+
+    diag_metadata_ = {};
+    diag_metadata_.channel = wire.channel;
+    for (std::size_t i = 0; i < 6; ++i) diag_metadata_.ofdm_stage_hits[i] = wire.bssid[i];
+    diag_metadata_.ofdm_stage_hits[6] = static_cast<uint8_t>(wire.ssid[0]);
+    diag_metadata_.ofdm_stage_hits[7] = static_cast<uint8_t>(wire.ssid[1]);
+    diag_metadata_.sq = static_cast<uint8_t>(wire.ssid[2]);
+    diag_metadata_.lna_gain_db = receiver_model.lna();
+    diag_metadata_.vga_gain_db = receiver_model.vga();
+    diag_metadata_.rf_amp = receiver_model.rf_amp();
+    std::memcpy(&diag_metadata_.ltf_position, &wire.ssid[3], sizeof(diag_metadata_.ltf_position));
+    std::memcpy(&diag_metadata_.cfo_hz, &wire.ssid[5], sizeof(diag_metadata_.cfo_hz));
+
+    const auto dir_error = ensure_directory(u"WIFI_DIAG");
+    if (dir_error.code()) {
+        set_decoder(false);
+        set_decoder(true);
+        text_status.set("IQ ERR SD");
+        return;
+    }
+    diag_c8_path_ = next_filename_matching_pattern(u"WIFI_DIAG/WAIM_???.C8");
+    if (diag_c8_path_.empty()) {
+        set_decoder(false);
+        set_decoder(true);
+        text_status.set("IQ ERR SD");
+        return;
+    }
+    diag_txt_path_ = diag_c8_path_;
+    diag_txt_path_.replace_extension(u".TXT");
+
+    diag_capture_done_ = false;
+    diag_capture_error_ = 0;
+    diag_capture_active_ = true;
+    auto writer = std::make_unique<BoundedC8Writer>(&diag_capture_done_);
+    const auto create_error = writer->create(diag_c8_path_);
+    if (create_error.is_valid()) {
+        diag_capture_active_ = false;
+        set_decoder(false);
+        set_decoder(true);
+        text_status.set("IQ ERR SD");
+        return;
+    }
+    diag_capture_thread_ = std::make_unique<CaptureThread>(
+        std::move(writer), 400u, 2u,
+        [this]() {
+            diag_capture_done_ = true;
+        },
+        [this](File::Error error) {
+            diag_capture_error_ = error.code();
+            diag_capture_done_ = true;
+        });
+}
+
+void WifiAimView::on_diag_capture_done() {
+    if (!diag_capture_active_) return;
+    diag_capture_thread_.reset();
+    diag_capture_active_ = false;
+    if (diag_capture_error_) {
+        text_status.set("IQ ERR SD");
+        return;
+    }
+
+    const auto metadata_error = write_diag_metadata();
+    if (metadata_error.is_valid()) {
+        text_status.set("IQ ERR SD");
+        return;
+    }
+    text_status.set("IQ SAVED 1");
+}
+
+Optional<File::Error> WifiAimView::write_diag_metadata() {
+    File metadata;
+    const auto create_error = metadata.create(diag_txt_path_);
+    if (create_error.is_valid()) return create_error;
+
+    char text[320];
+    std::size_t pos = 0;
+#define META_LABEL(label, value)       \
+    do {                               \
+        meta_text(text, pos, label);   \
+        meta_uint(text, pos, value);   \
+        meta_text(text, pos, "\r\n"); \
+    } while (0)
+    meta_text(text, pos, "sample_rate_sps=20000000\r\nfirmware=" VERSION_STRING "\r\n");
+    META_LABEL("frequency_hz=", static_cast<uint32_t>(channel_frequency(diag_metadata_.channel)));
+    META_LABEL("channel=", diag_metadata_.channel);
+    META_LABEL("lna_gain_db=", diag_metadata_.lna_gain_db);
+    META_LABEL("vga_gain_db=", diag_metadata_.vga_gain_db);
+    META_LABEL("rf_amp=", diag_metadata_.rf_amp ? 1u : 0u);
+    META_LABEL("SQ=", diag_metadata_.sq);
+    meta_text(text, pos, "L/H/V/P=");
+    for (std::size_t i = 0; i < 4; ++i) {
+        if (i) text[pos++] = '/';
+        meta_uint(text, pos, diag_metadata_.ofdm_stage_hits[i]);
+    }
+    meta_text(text, pos, "\r\nR/N/D/M=");
+    for (std::size_t i = 4; i < 8; ++i) {
+        if (i != 4) text[pos++] = '/';
+        meta_uint(text, pos, diag_metadata_.ofdm_stage_hits[i]);
+    }
+    meta_text(text, pos, "\r\n");
+    META_LABEL("ltf_position=", diag_metadata_.ltf_position);
+    meta_text(text, pos, "cfo_hz=");
+    meta_int(text, pos, diag_metadata_.cfo_hz);
+    meta_text(text, pos, "\r\n");
+#undef META_LABEL
+
+    const auto write_result = metadata.write(text, pos);
+    if (write_result.is_error()) return write_result.error();
+    metadata.close();
+    return {};
 }
 
 void WifiAimView::push_target_level(int16_t x) {

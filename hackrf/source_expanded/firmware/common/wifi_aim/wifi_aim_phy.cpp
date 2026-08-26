@@ -601,6 +601,17 @@ bool M4OfdmWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
     if (trace) {
         const float q = std::max(0.0f, std::min(1.0f, ltf_score));
         trace->ltf_score = static_cast<uint8_t>(q * 100.0f + 0.5f);
+        trace->ltf_position = static_cast<uint16_t>(std::min<std::size_t>(L, 0xFFFFu));
+        // The decoder's complex step de-rotates the received signal, hence
+        // CFO has the opposite sign. At the 20 MS/s input and the STF's
+        // +/-Fs/32 acquisition range, |imag/real| < 0.2. The cubic atan
+        // approximation is accurate to better than about 250 Hz across that
+        // range and avoids adding libm code to the constrained M4 image.
+        if (cfo_step_r > 0.0f) {
+            const float x = cfo_step_i / cfo_step_r;
+            const float phase = x - (x * x * x) / 3.0f;
+            trace->cfo_hz = static_cast<int32_t>(-phase * 3183098.862f);
+        }
     }
     if (!ltf_ok) return false;
     if (trace) trace->stage = 1;

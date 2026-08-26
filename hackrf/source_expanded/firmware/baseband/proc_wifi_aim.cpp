@@ -110,6 +110,30 @@ void WifiAimProcessor::send_diag_state() {
     send_wire_report(wire, diag_packet_);
 }
 
+void WifiAimProcessor::send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace) {
+    // Fix8t-DIAG: one self-contained snapshot describing the frozen buffer.
+    // The stock FSKPacket transport remains unchanged; 0xFA identifies this
+    // diagnostic subtype and no pointer to M4 RAM crosses the core boundary.
+    wifiaim::WireApReport wire{};
+    wire.channel = tuned_channel_;
+    wire.flags = 0x80u;
+    wire.ssid_len = 0xFAu;
+    wire.capture_total = static_cast<uint16_t>(capture_attempts_ & 0x3FFFu);
+    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);
+    wire.bssid[0] = ofdm_stage_hits_[0];  // L
+    wire.bssid[1] = ofdm_stage_hits_[1];  // H
+    wire.bssid[2] = ofdm_stage_hits_[2];  // V
+    wire.bssid[3] = ofdm_stage_hits_[3];  // P
+    wire.bssid[4] = ofdm_stage_hits_[4];  // R
+    wire.bssid[5] = ofdm_stage_hits_[5];  // N
+    wire.ssid[0] = static_cast<char>(ofdm_stage_hits_[6]);  // D
+    wire.ssid[1] = static_cast<char>(ofdm_stage_hits_[7]);  // M
+    wire.ssid[2] = static_cast<char>(trace.ltf_score);      // SQ for this capture
+    std::memcpy(&wire.ssid[3], &trace.ltf_position, sizeof(trace.ltf_position));
+    std::memcpy(&wire.ssid[5], &trace.cfo_hz, sizeof(trace.cfo_hz));
+    send_wire_report(wire, diag_packet_);
+}
+
 void WifiAimProcessor::reset_detector() {
     capture_count_ = 0;
     pretrigger_count_ = 0;
@@ -165,6 +189,8 @@ void WifiAimProcessor::finish_capture() {
     wire.capture_total = static_cast<uint16_t>(capture_attempts_ & 0x3FFFu);
     wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);
 
+    const bool freeze_for_diag = !diag_capture_saved_ && !diag_capture_pending_ && ofdm_trace.stage >= 7u;
+
     if (decoded) {
         // A real AP report is always emitted immediately and uses its own
         // backing packet buffer so channel-retune telemetry cannot overwrite it.
@@ -177,13 +203,24 @@ void WifiAimProcessor::finish_capture() {
         wire.flags = ap.hidden ? 0x01u : 0x00u;
         wire.phy_rate_mbps = ap.phy_rate_mbps;
         send_wire_report(wire, ap_packet_);
-    } else if ((capture_attempts_ % kDiagCaptureStride) == 0u) {
+    } else if (!freeze_for_diag && (capture_attempts_ % kDiagCaptureStride) == 0u) {
         // A busy/noisy RF channel can produce hundreds of failed captures per
         // second. We only need periodic progress here; exact totals are also
         // sent on every decoder/channel state change.
         wire.flags = 0x80u;
         fill_probe_diag(wire);
         send_wire_report(wire, diag_packet_);
+    }
+
+    if (freeze_for_diag) {
+        // Keep capture_ and capture_count_ untouched until M0 opens the C8 file
+        // and replies with stock CaptureConfig. Incoming RF is ignored while
+        // Frozen/Dumping, so the saved bytes are exactly the decoded capture.
+        diag_capture_pending_ = true;
+        diag_dump_offset_ = 0;
+        state_ = State::Frozen;
+        send_diag_capture_ready(ofdm_trace);
+        return;
     }
 
     capture_count_ = 0;
@@ -193,6 +230,23 @@ void WifiAimProcessor::finish_capture() {
 }
 
 void WifiAimProcessor::execute(const buffer_c8_t& buffer) {
+    if (state_ == State::Dumping) {
+        if (diag_stream_) {
+            const std::size_t total_bytes = kCaptureSamples * sizeof(wifiaim::IQ8);
+            if (diag_dump_offset_ < total_bytes) {
+                const auto* bytes = reinterpret_cast<const uint8_t*>(capture_.data());
+                diag_dump_offset_ += diag_stream_->write(
+                    bytes + diag_dump_offset_, total_bytes - diag_dump_offset_);
+            } else {
+                // CaptureThread may already be asleep in BufferExchange::get()
+                // when M0 asks it to stop. Feed frozen (never live) padding so
+                // it wakes, observes termination, and lets CaptureConfig close.
+                diag_stream_->write(capture_.data(), 400u);
+            }
+        }
+        return;
+    }
+    if (state_ == State::Frozen) return;
     if (!enabled_) return;
 
     const uint32_t p = block_power(buffer);
@@ -247,7 +301,26 @@ void WifiAimProcessor::on_message(const Message* const message) {
             // A scan always begins by enabling channel 1. Reset only the Fix8a
             // per-scan probe values here; C/D keep their existing cumulative
             // semantics and are delta'd by M0 as before.
-            if (m.start && tuned_channel_ == 1u) reset_probe_diag();
+            if (m.start && tuned_channel_ == 1u) {
+                reset_probe_diag();
+                diag_capture_saved_ = false;
+            }
+
+            // M0 pauses channel hopping while a one-shot dump is active. A
+            // disable while still Frozen is the ABI-safe cancellation path for
+            // an SD/open error before CaptureThread can send CaptureConfig.
+            if (diag_capture_pending_) {
+                enabled_ = m.start;
+                if (!m.start && state_ == State::Frozen) {
+                    diag_capture_pending_ = false;
+                    diag_capture_saved_ = false;
+                    capture_count_ = 0;
+                    pretrigger_count_ = 0;
+                    state_ = State::Waiting;
+                    send_diag_state();
+                }
+                break;
+            }
 
             enabled_ = m.start;
             capture_count_ = 0;
@@ -258,6 +331,27 @@ void WifiAimProcessor::on_message(const Message* const message) {
             // Exact counters + channel acknowledgement at every state/channel
             // transition; this also gives exact final counters when SCAN ends.
             send_diag_state();
+            break;
+        }
+        case Message::ID::CaptureConfig: {
+            if (!diag_capture_pending_) break;
+            const auto& m = *reinterpret_cast<const CaptureConfigMessage*>(message);
+            if (m.config && state_ == State::Frozen) {
+                // StreamInput owns the stock shared FIFO buffers. M4 only drains
+                // the already-frozen 40 kB capture; it never forwards live RF.
+                diag_stream_ = std::make_unique<StreamInput>(m.config);
+                diag_dump_offset_ = 0;
+                state_ = State::Dumping;
+            } else if (!m.config) {
+                const bool complete = diag_dump_offset_ == kCaptureSamples * sizeof(wifiaim::IQ8);
+                diag_stream_.reset();
+                diag_capture_pending_ = false;
+                diag_capture_saved_ = complete;
+                capture_count_ = 0;
+                pretrigger_count_ = 0;
+                cooldown_buffers_ = 2;
+                state_ = enabled_ ? State::Cooldown : State::Waiting;
+            }
             break;
         }
         default:

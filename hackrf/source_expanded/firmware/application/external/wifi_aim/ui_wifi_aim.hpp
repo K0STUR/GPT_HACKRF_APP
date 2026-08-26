@@ -4,10 +4,13 @@
 #include "ui_navigation.hpp"
 #include "ui_receiver.hpp"
 #include "message.hpp"
+#include "file.hpp"
+#include "capture_thread.hpp"
 #include "wifi_aim_wire.hpp"
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace ui::external_app::wifi_aim {
@@ -22,6 +25,17 @@ struct ApEntry {
     int16_t last_db_x10{-1200};
     uint32_t hits{0};
     uint8_t phy_rate_mbps{0};
+};
+
+struct DiagCaptureMetadata {
+    uint8_t channel{0};
+    std::array<uint8_t, 8> ofdm_stage_hits{};
+    uint8_t sq{0};
+    uint8_t lna_gain_db{0};
+    uint8_t vga_gain_db{0};
+    bool rf_amp{false};
+    uint16_t ltf_position{0};
+    int32_t cfo_hz{0};
 };
 
 class WifiAimView final : public View {
@@ -49,6 +63,13 @@ class WifiAimView final : public View {
     uint8_t current_channel_{1};
     uint32_t timer_ms_{0};
     uint32_t auto_phase_ms_{0};
+    bool diag_capture_active_{false};
+    volatile bool diag_capture_done_{false};
+    volatile uint32_t diag_capture_error_{0};
+    DiagCaptureMetadata diag_metadata_{};
+    std::filesystem::path diag_c8_path_{};
+    std::filesystem::path diag_txt_path_{};
+    std::unique_ptr<CaptureThread> diag_capture_thread_{};
 
     // Fix7b/Fix7c receive M4 diagnostics through the already-existing
     // FSKPacket handler, avoiding a new HunterTrigger registration in M0.
@@ -92,7 +113,6 @@ class WifiAimView final : public View {
     MessageHandlerRegistration packet_handler_{
         Message::ID::FSKPacket,
         [this](const Message* const p) { on_packet(static_cast<const FSKRxPacketMessage*>(p)); }};
-
     void set_decoder(bool on);
     void tune_channel(uint8_t ch);
     void start_scan();
@@ -101,6 +121,9 @@ class WifiAimView final : public View {
     void cycle_mode();
     void on_frame_sync();
     void on_packet(const FSKRxPacketMessage* msg);
+    void start_diag_capture(const wifiaim::WireApReport& wire);
+    void on_diag_capture_done();
+    Optional<File::Error> write_diag_metadata();
     void update_scan_status();
     void update_done_status();
     uint16_t scan_capture_delta() const;
