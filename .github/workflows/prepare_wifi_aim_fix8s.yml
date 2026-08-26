@@ -1,0 +1,58 @@
+name: Prepare WiFi AIM Fix8s offline-validated PHY
+
+on:
+  push:
+    branches:
+      - wifi-aim-fix8s-offline-validated-phy
+    paths:
+      - '.github/workflows/prepare_wifi_aim_fix8s.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wifi-aim-fix8s-offline-validated-phy
+          fetch-depth: 0
+
+      - name: Fetch immutable offline-validated patcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://raw.githubusercontent.com/K0STUR/GPT_HACKRF_APP/a635a30d9901e3091774214e6fc2e6ac81df77cc/hackrf/tools/wifi_aim_offline/apply_candidate.py \
+            -o /tmp/apply_fix8s.py
+
+      - name: Apply exact validated PHY candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+          python3 /tmp/apply_fix8s.py "$SRC" /tmp/wifi_aim_phy.cpp
+          echo 'dae2e9291e19b68df97698f755e397f5e28661b710770aaf6bf2bcc788ce5a13  /tmp/wifi_aim_phy.cpp' | sha256sum -c -
+          mv /tmp/wifi_aim_phy.cpp "$SRC"
+
+      - name: Validate Fix8s markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=hackrf/source_expanded/firmware/common/wifi_aim/wifi_aim_phy.cpp
+          grep -q 'STF lag-16 coarse CFO' "$SRC"
+          grep -q 'Absolute LTF timing' "$SRC"
+          grep -q '(re>0.0f)?1u:0u' "$SRC"
+          grep -q '16u+want_bytes\*8u+6u' "$SRC"
+
+      - name: Commit only production PHY
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/prepare_wifi_aim_fix8s.yml
+          git config user.name K0STUR
+          git config user.email 74721566+K0STUR@users.noreply.github.com
+          git add -A
+          git commit -m 'WiFi AIM Fix8s: port offline-validated legacy OFDM PHY'
+          git push origin HEAD:wifi-aim-fix8s-offline-validated-phy
