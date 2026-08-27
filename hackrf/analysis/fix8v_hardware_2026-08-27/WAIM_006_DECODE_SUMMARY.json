@@ -1,0 +1,80 @@
+{
+  "schema": "wifi-aim-fix8v-hardware-handover-v1",
+  "capture": "WAIM_006.C8",
+  "sha256": {
+    "c8": "2634F8D201B6CA11F81418F8DD27CFAEC8B201BBE1D80BDAF89F75AA6372666F",
+    "txt": "F6D44C437EE7490D10FBA7615A4A7EC9F95A9813B3AFCCED47E321B25CA5B95D"
+  },
+  "radio": {
+    "sample_rate_sps": 20000000,
+    "frequency_hz": 2447000000,
+    "channel": 8,
+    "lna_gain_db": 32,
+    "vga_gain_db": 32,
+    "rf_amp": false
+  },
+  "synchronization": {
+    "pretrigger_samples": 2048,
+    "stf_position": 3209,
+    "stf_score_percent": 98.7,
+    "ltf_position": 3385,
+    "ltf_offset_from_pretrigger": 1337,
+    "absolute_ltf_pair_score_percent": 85.4,
+    "ltf_repetition_coherence_percent": 97.5,
+    "cfo_hz": 814
+  },
+  "spectrum": {
+    "bw90_mhz": 16.0,
+    "flatness": 0.452,
+    "peak_to_median_db": 11.4,
+    "classification": "genuine 20 MHz OFDM"
+  },
+  "trigger": {
+    "full_block_power": 966.2,
+    "max_256_power": 1607.8,
+    "max_128_power": 1689.8,
+    "pretrigger_mean_power": 17.2,
+    "full_trigger_at_risk": false
+  },
+  "clipping": {
+    "components": 1,
+    "components_total": 40000,
+    "percent": 0.0025
+  },
+  "firmware_cumulative_pipeline": {
+    "L_H_V_P": [20, 20, 20, 20],
+    "R_N_D_M": [19, 2, 1, 0]
+  },
+  "offline_decode": {
+    "signal_viterbi_metric": 0,
+    "rate_mbps": 6,
+    "length_bytes": 118,
+    "signal_parity_valid": true,
+    "signal_reserved_valid": true,
+    "signal_tail_valid": true,
+    "data_viterbi_reached": true,
+    "data_viterbi_metric": 185,
+    "minimum_service_distance": 3,
+    "firmware_service_max_distance": 2,
+    "frame_control_hex": "0x4cf7",
+    "valid_ap_frame": false
+  },
+  "focused_sweep": {
+    "candidate_count": 153,
+    "cfo_hz_range": [-2000, 2000],
+    "timing_samples_range": [-8, 8],
+    "constrained_rate_mbps": 6,
+    "constrained_length_bytes": 118,
+    "constrained_signal_metric": 0,
+    "best_service_distance": 3,
+    "post_stage_count": 0,
+    "decoded_ap_count": 0
+  },
+  "verdict": {
+    "search_geometry_fixed": true,
+    "energy_trigger_cause_for_this_capture": false,
+    "clipping_cause_for_this_capture": false,
+    "failure_stage": "post-SIGNAL DATA hard-decision/FEC/descrambling",
+    "loosen_service_or_mac_gate": false
+  }
+}

@@ -116,6 +116,36 @@ def main():
             f"{r['flatness']:.3f} | {r['peak_median_db']:.1f} |"
         )
 
+    admitted = [r for r in rows if r["stf"] >= 0.75 and r["ltf_loose_best"] >= 0.30]
+    rejected = [r for r in rows if r["stf"] < 0.75 and r["ltf_loose_best"] < 0.30]
+    ambiguous = [r for r in rows if r not in admitted and r not in rejected]
+
+    def names(items):
+        return ", ".join(r["name"] for r in items)
+
+    verdict = [
+        "The old 2200-sample limit is a search-geometry defect. Golden packets "
+        "with LTF at 2500, 3000, 3500, 4096, and 4500 are valid but cannot be "
+        "reached by the old search.",
+    ]
+    if admitted:
+        verdict.append(
+            f"- Synchronization evidence passes for {names(admitted)}: sustained "
+            "STF is at least 75% and the absolute LTF pair is at least 30%."
+        )
+    if rejected:
+        verdict.append(
+            f"- Synchronization evidence rejects {names(rejected)}: both STF and "
+            "absolute LTF are below their admission thresholds."
+        )
+    if ambiguous:
+        verdict.append(
+            f"- Mixed synchronization evidence remains for {names(ambiguous)}; "
+            "inspect the capture before classifying it."
+        )
+    if not rows:
+        verdict.append("- No matching WAIM_00*.C8/TXT pairs were found.")
+
     out=[
         "# Fix8u RAW IQ comparison",
         "",
@@ -133,22 +163,7 @@ def main():
         "",
         "## Verdict",
         "",
-        "Both failure modes are real, but they apply at different stages:",
-        "",
-        "- The old 2200-sample limit is a search-geometry defect. Golden packets with "
-        "LTF at 2500, 3000, 3500, 4096, and 4500 are valid but cannot be reached "
-        "by the old search.",
-        "- These four hardware captures are false energy triggers/interference, not "
-        "valid Wi-Fi preambles hidden later in the buffer. Their best full-search STF "
-        "is below 75%, and their best absolute LTF score is only 3.9-5.5%, versus "
-        "about 99.6% for golden IQ.",
-        "- The reported positions near sample 2048 in WAIM_000/001/002 are therefore "
-        "boundary false-locks caused by admitting a locally best weak candidate. "
-        "WAIM_003 locks elsewhere but fails the same absolute STF/LTF evidence tests.",
-        "",
-        "Fix8u must correct both: search through sample 5000 and reject candidates "
-        "unless they pass sustained lag-16 STF admission followed by coarse-CFO "
-        "absolute LTF-pair matching.",
+        *verdict,
     ]
     text="\n".join(out)+"\n"
     if args.output:

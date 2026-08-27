@@ -1,0 +1,199 @@
+FIX8W-DIAG — DATA ROBUSTNESS + DSSS AUDIT
+========================================
+Data: 2026-08-27
+Branch: wifi-aim-fix8v-reliability-profiler
+PR: #28, draft, bez merge przed hardware testem.
+
+Nie rozpoczęto analizy od nowa. Fix8w kontynuuje Fix8v, zachowując Fix8u sync,
+Fix8s PHY/DATA oraz Fix8t one-shot C8.
+
+WEJŚCIE I INTEGRALNOŚĆ
+======================
+Z karty SD skopiowano poza nośnik komplet WAIM_007..WAIM_017: 11 plików C8 i
+11 plików TXT. Każdy C8 ma 40 000 bajtów, czyli 20 000 complex RawS8 I/Q.
+SHA-256 źródła i kopii zgadza się dla 22/22 plików. Manifest i oryginalne pliki
+są w hackrf/analysis/fix8w_hardware_2026-08-27/.
+
+Wszystkie capture: CH8 / 2447 MHz / LNA32 / VGA32 / AMP OFF / 20 MS/s.
+
+OFFLINE HARNESS
+===============
+Nowe narzędzie analyze_fix8w_data.py liczy dla każdego capture:
+- STF, absolute LTF pair, CFO, SIGNAL metric/RATE/LENGTH;
+- hard i soft DATA Viterbi;
+- SERVICE, FC, pełny PSDU i CRC/FCS;
+- EVM, pilot CPE/coherence, residual phase i channel drift per DATA symbol;
+- clipping;
+- pozycje zmian hard vs soft;
+- 32 najsłabsze coded bits z numerem symbolu;
+- skupienie zmian w symbolach DATA.
+
+Sprawdzono 54 warianty na capture, 594 próby:
+- soft 3/4/5 bit;
+- raw/normalized LLR;
+- noise weighting per subcarrier;
+- CPE on/off;
+- CFO delta -2 kHz..+2 kHz;
+- timing -8..+8;
+- amplitude normalization;
+- decision-directed phase;
+- channel update alpha 0.10/0.25;
+- traceback best-state/state-0;
+- pilot polarity 127/64.
+
+WYNIK BATCHA
+============
+FCS odzyskany: 0/11 capture, 0/594 wariantów.
+Nie znaleziono także prawidłowego wcześniejszego FCS wewnątrz żadnego hard lub
+soft byte streamu. Nie ma deterministycznej poprawki DATA do firmware.
+
+Najważniejsze wyniki referencyjnego soft q5 normalized:
+
+CAP   STF   LTF   CFO      SIG  RATE/LEN  HARD metric/SVC/FC    SOFT metric/SVC/FC       FCS
+007   99.0  39.9  +843     6    24/56     117/3/dad5            618/3/1acb               FAIL
+008   93.8  35.6  -2135    4    12/56     123/2/9d5b            964/4/23bf               FAIL
+009   99.9  66.9  +1471    3    24/56     123/4/36a8            626/4/e46f               FAIL
+010  100.0  43.2  +27      3    24/56     120/2/5094            596/1/0094               FAIL
+011   99.9  63.6  -11777   3     6/583   1178/3/b5a9           4028/3/b5a9               FAIL
+012   99.8  60.8  -10851   2     6/454    911/3/d70b           3628/3/4f0b               FAIL
+013   99.7  73.8  +2320    0     6/46      98/4/ba7d            580/4/fa7d               FAIL
+014   99.9  44.6  +300     4    24/56     120/3/13d3            692/2/970f               FAIL
+015   99.9  48.7  -6686    1     6/121    249/3/acc5           1836/3/2cc5               FAIL
+016   80.4  66.1  -7909    0     6/56      33/0/0094            106/0/0094               FAIL
+017   99.8  69.3  -10824   2    24/56     121/2/8991            672/0/bd6c               FAIL
+
+WAIM_016
+========
+To najlepszy kandydat i jednocześnie dowód przeciw tuningowi FEC na wyczucie:
+- SIGNAL metric0, 6 Mb/s, LENGTH56, SERVICE0, FC0x0094 Block Ack;
+- hard i soft są identyczne przez pierwsze 46 bajtów PSDU;
+- DATA symbole 0..15: moc około 132..157, EVM 33..47%;
+- od symbolu16 moc spada do 18..25, EVM rośnie do 84..88%;
+- pilot coherence spada nawet do 27.9%;
+- wszystkie różnice hard/soft skupiają się w symbolach16..19: 17/12/12/2 bity;
+- ostatnie 10 bajtów wraz z FCS leży dokładnie w zdegradowanym ogonie;
+- CPE działa: wyłączenie pogarsza średni EVM z 47.4% do 93.0%;
+- timing/CFO/channel/traceback zachowują nagłówek, ale nie odzyskują FCS.
+
+Najbardziej prawdopodobne jest ucięcie/kolizja końca burstu lub skojarzenie
+poprawnego SIGNAL z energią, która nie pozostaje koherentna przez pełne DATA.
+To nie jest dowód na błąd Viterbi, descramblera lub gate.
+
+POZOSTAŁE WNIOSKI DATA
+======================
+- Fix8u STF/LTF i search geometry działają; nie zmieniać.
+- Pilot CPE per symbol działa i pomaga.
+- Pilot period64 nie dotyka firmware prefixu: przy limicie96 B i 6 Mb/s są
+  maksymalnie 33 DATA symbole. Pełny offline używa standardowego period127.
+- Capture używają tylko rate-1/2; hardware nie testuje soft depuncturing.
+- Batch nie zawiera 64-QAM; 64-QAM pozostaje tylko w golden regression.
+- Traceback state0 nie pomaga i nie jest poprawnym założeniem po PAD.
+- want_bits i symbol count są poprawne w pełnym offline. Limit96 B w firmware
+  jest celowym parserem prefiksu AP, nie przyczyną dla LEN46/56.
+- WAIM_011/012/015 mają clipping 15.9..21.3%, który dodatkowo degraduje DATA.
+- SERVICE/MAC gates pozostają bez zmian. Ich poluzowanie nie naprawia CRC.
+
+DSSS AUDIT
+==========
+Generator/replay offline:
+- long-preamble 1 Mb/s Beacon: PASS;
+- long-preamble 1 Mb/s Probe Response: PASS;
+- timing phase: 20/20 PASS;
+- long-preamble 2 Mb/s: PLCP znaleziony, odrzut na SIGNAL 0x14;
+- short preamble: brak obsługi;
+- PLCP CRC nie jest sprawdzany;
+- LENGTH zakłada wyłącznie 1 Mb/s i dzielenie mikrosekund przez8;
+- descrambler oraz payload offset dla long/1M są poprawne.
+
+Dodano wyłącznie diagnostykę DSSS, bez zmiany dekodera:
+admission, Barker, timing, differential, descramble, PLCP, payload, MAC type,
+Beacon/Probe, SSID, final AP. Transport używa subtype0xF8 wewnątrz istniejącego
+WireApReport. Layout i stock ABI nie zmieniają się. Przycisk ACC przełącza
+strony ACC i DSSS.
+
+REGRESSION
+==========
+- Fix8u sync geometry: 128/128, 8/8 rates PASS;
+- Fix8w DATA golden: hard FCS 8/8, q4/q5 soft FCS 8/8 PASS;
+- q3 raw: 6/8, zgodnie z oczekiwaną utratą rozdzielczości na 48/54 Mb/s;
+- DSSS long/1M Beacon+Probe PASS, timing20/20 PASS;
+- Fix8w DSSS static contract: 11 stages, subtype0xF8, ABI layout unchanged PASS;
+- Fix8v profiler i Fix8t one-shot contracts PASS.
+
+DECYZJA
+========
+Brak zmiany OFDM DATA w firmware. Zachować Fix8u sync, Fix8s PHY, Fix8t C8,
+SERVICE i MAC gates. Jedyny patch firmware to liczniki DSSS do następnego testu.
+Nie merge'ować PR #28 przed hardware validation.
+
+NASTĘPNY EKSPERYMENT
+====================
+Kontrolowany nadajnik + równoległy monitor-mode/reference capture z dokładnie
+znanym PSDU/FCS. Nadawać powtarzalne 6 Mb/s ramki długości32/46/56 B na cichym
+kanale. Zachować tylko C8, w których moc istnieje do ostatniego deklarowanego
+symbolu DATA. Powtórzyć gain32/32 oraz niższy gain. Znany ground truth pozwoli
+zamienić weakest-bit report w prawdziwą mapę BER; bez niego dalszy tuning soft
+jest zgadywaniem.
+
+Osobno wykonać hardware run strony DSSS dla kontrolowanego long/1M oraz źródła
+2M/short, żeby potwierdzić dokładny stage drop.
+
+Pełny handover: hackrf/analysis/fix8w_hardware_2026-08-27/README.md
+
+BUILD / HARDENED CI FOLLOW-UP (RUN #58 -> #59)
+================================================
+Run #58:
+- GitHub Actions run: 33112676895
+- HEAD: f0e2d8a9a0a7e384505f134cf12bd1a41d86218c
+- stock baseline: PASS;
+- pierwszy nieudany krok: "Build modified Fix7b tree";
+- kompilacja zatrzymała się przed linkowaniem aplikacji i przed kontrolą
+  rozmiaru/regionów;
+- dokładny błąd:
+  ui_wifi_aim.hpp:63:35: error: 'DSSS_STAGE_COUNT' is not a member of 'wifiaim'
+- hardened ABI audit oraz static gate zostały pominięte, ponieważ modified
+  firmware nie skompilował się. Nie był to ABI drift, overflow ani static-gate
+  failure.
+
+Przyczyna:
+`ui_wifi_aim.hpp` przechowywał tablicę liczników o rozmiarze
+`wifiaim::DSSS_STAGE_COUNT`, ale zawierał tylko `wifi_aim_wire.hpp`.
+`DSSS_STAGE_COUNT` jest zadeklarowany w `wifi_aim/wifi_aim_phy.hpp`.
+Baseband widział tę deklarację przez własny include, natomiast nagłówek UI nie.
+
+Minimalna poprawka buildu:
+- dodano wyłącznie `#include "wifi_aim/wifi_aim_phy.hpp"` do nagłówka UI;
+- rozszerzono statyczny kontrakt Fix8w o sprawdzenie obecności tego include;
+- nie zmieniono żadnej logiki PHY, DATA/Viterbi, DSSS decoder, SERVICE ani MAC;
+- nie osłabiono i nie zmieniono hardened ABI/static audit.
+
+Commit poprawki:
+86583e569f99d6fb3a1a9c93c38e927f7713c71b
+"Fix Fix8w DSSS telemetry UI build"
+
+Run #59:
+- GitHub Actions run: 33116078626
+- wynik całego workflow: SUCCESS/PASS, czas 19m55s;
+- offline regressions: PASS;
+- stock baseline: PASS;
+- modified firmware compile/link/region check: PASS;
+- hardened ABI audit: PASS;
+- static gate: PASS.
+
+Wymagane wartości z VERIFY.txt:
+core_symbol_drift_count=0
+patch_count=0
+unresolved_count=0
+ambiguous_count=0
+final_checksum=0x00000000
+RESULT=PASS
+
+Artefakt z run #59:
+- CI artifact: wifi-aim-full-n260808-fix8v-diag;
+- oryginalna nazwa CI: A_WiFiAIM_Fix8v_DIAG.ppma;
+- publikowana nazwa etapu: A_WiFiAIM_Fix8w_DIAG.ppma;
+- rozmiar: 32160 B;
+- SHA-256:
+  a978c4ab05d95608b1648d330ef9b67f498a70ffdf4d5dcf2ad970a7d063759b
+
+PR #28 pozostaje DRAFT. Nie merge'ować przed testem sprzętowym.

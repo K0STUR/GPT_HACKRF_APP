@@ -1,4 +1,4 @@
-name: Build WiFi AIM n_260808 Fix8u trigger geometry
+name: Build WiFi AIM n_260808 Fix8w DATA/DSSS diagnostics
 
 on:
   pull_request:
@@ -8,6 +8,11 @@ on:
       - 'hackrf/source_expanded/firmware/baseband/proc_wifi_aim.*'
       - 'hackrf/source_expanded/firmware/common/wifi_aim_wire.hpp'
       - 'hackrf/source_expanded/firmware/common/wifi_aim/**'
+      - 'hackrf/tools/test_fix8v_*.py'
+      - 'hackrf/tools/test_fix8w_*.py'
+      - 'hackrf/tools/analyze_fix8w_data.py'
+      - 'hackrf/tools/audit_fix8w_dsss.py'
+      - 'hackrf/analysis/fix8w_hardware_2026-08-27/**'
       - '.github/workflows/build_wifi_aim_full_n260808_fix7b.yml'
   workflow_dispatch:
 
@@ -34,7 +39,7 @@ jobs:
           grep -q 'send_diag_state' wifi_src/firmware/baseband/proc_wifi_aim.cpp
           grep -q 'capture_total' wifi_src/firmware/common/wifi_aim_wire.hpp
           grep -q 'version{3}' wifi_src/firmware/common/wifi_aim_wire.hpp
-          grep -q 'timer_ms_ >= 1000' wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp
+          grep -q 'timer_ms_ >= 10000u' wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp
           if grep -q 'Message::ID::HunterTrigger' wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.hpp; then
             echo 'Fix7b must not add a HunterTrigger handler to M0' >&2
             exit 1
@@ -46,15 +51,21 @@ jobs:
           set -euo pipefail
           python3 hackrf/tools/test_fix8t_diag_contract.py
 
-      - name: Validate Fix8u offline trigger geometry before firmware build
+      - name: Validate Fix8u through Fix8w offline regressions before firmware build
         shell: bash
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check --quiet numpy
           python3 hackrf/tools/test_fix8u_sync_geometry.py
           python3 hackrf/tools/test_fix8u_contract.py
+          python3 hackrf/tools/test_fix8v_energy_trigger.py --false-trials 20000
+          python3 hackrf/tools/test_fix8v_profiler_contract.py
           python3 hackrf/tools/test_fix8d_fec_reference.py
           python3 hackrf/tools/test_fix8e_post_pipeline.py
+          python3 hackrf/tools/test_fix8w_data_robustness.py
+          python3 hackrf/tools/audit_fix8w_dsss.py
+          python3 hackrf/tools/test_fix8w_dsss_contract.py
+          python3 hackrf/tools/test_fix8w_batch_contract.py
 
       - name: Remove non-stock MAC formatter dependency
         shell: bash
@@ -64,32 +75,9 @@ jobs:
           from pathlib import Path
           ui=Path('wifi_src/firmware/application/external/wifi_aim/ui_wifi_aim.cpp')
           s=ui.read_text()
-          anchor='namespace ui::external_app::wifi_aim {'
-          assert anchor in s
-          helper=r'''
-
-          static std::string wifi_aim_local_mac_string(const uint8_t* mac, uint8_t length, bool noColon) {
-              if (!mac || length == 0) return {};
-              if (length > 6) length = 6;
-              constexpr char digits[] = "0123456789ABCDEF";
-              char out[18]{};
-              size_t pos = 0;
-              for (uint8_t i = 0; i < length; ++i) {
-                  if (i && !noColon) out[pos++] = ':';
-                  out[pos++] = digits[(mac[i] >> 4) & 0x0F];
-                  out[pos++] = digits[mac[i] & 0x0F];
-              }
-              out[pos] = '\0';
-              return std::string(out);
-          }
-          '''
-          s=s.replace(anchor,anchor+helper,1)
-          n=s.count('to_string_mac_address(')
-          assert n > 0
-          s=s.replace('to_string_mac_address(','wifi_aim_local_mac_string(')
           assert 'to_string_mac_address(' not in s
           ui.write_text(s)
-          print('patched_mac_calls=', n)
+          print('mac_formatter_dependency=absent')
           PY
 
       - name: Checkout exact stock Mayhem n_260808 twice
@@ -254,7 +242,7 @@ jobs:
               struct.pack_into('<I',src,len(src)-4,(-total)&0xffffffff)
           final=sum(struct.unpack_from('<I',src,i)[0] for i in range(0,len(src),4))&0xffffffff if len(src)%4==0 else 1
 
-          out=OUT/'WiFiAIM_n260808_fix7b.ppma'; out.write_bytes(src)
+          out=OUT/'A_WiFiAIM_Fix8v_DIAG.ppma'; out.write_bytes(src)
           sha=hashlib.sha256(src).hexdigest()
           op_stock=[x[0] for x in sn.get('_Znwj',[])]
           op_mod=[x[0] for x in mn.get('_Znwj',[])]
@@ -287,9 +275,9 @@ jobs:
               op_stock==[0x7ee24] and op_mod==[0x7ee24] and not mac_stock and not mac_mod)
           report.append('RESULT='+('PASS' if ok else 'FAIL'))
           (OUT/'VERIFY.txt').write_text('\n'.join(report)+'\n')
-          (OUT/'SHA256SUMS.txt').write_text(f'{sha}  WiFiAIM_n260808_fix7b.ppma\n')
-          (OUT/'WiFiAIM_n260808_fix7b.ppma.b64').write_text(base64.b64encode(src).decode())
-          (OUT/'STATUS.txt').write_text('WiFi AIM n_260808 Fix7b\nRESULT='+('PASS' if ok else 'FAIL')+'\n')
+          (OUT/'SHA256SUMS.txt').write_text(f'{sha}  A_WiFiAIM_Fix8v_DIAG.ppma\n')
+          (OUT/'A_WiFiAIM_Fix8v_DIAG.ppma.b64').write_text(base64.b64encode(src).decode())
+          (OUT/'STATUS.txt').write_text('WiFi AIM n_260808 Fix8v-DIAG\nRESULT='+('PASS' if ok else 'FAIL')+'\n')
           print('\n'.join(report[:80]))
           PY
 
@@ -297,7 +285,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wifi-aim-full-n260808-fix7b
+          name: wifi-aim-full-n260808-fix8v-diag
           path: hackrf/build_results/wifi_aim_full_n260808_fix7b/*
           if-no-files-found: warn
 

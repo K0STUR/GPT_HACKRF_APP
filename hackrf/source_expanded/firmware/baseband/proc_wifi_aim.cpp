@@ -7,18 +7,35 @@
 #include <algorithm>
 #include <cstring>
 
-uint32_t WifiAimProcessor::block_power(const buffer_c8_t& buffer) const {
-    if (!buffer.count) return 0;
+WifiAimProcessor::EnergyPowers WifiAimProcessor::block_powers(const buffer_c8_t& buffer) const {
+    EnergyPowers out{};
+    if (!buffer.count) return out;
     // A DMA/baseband block is far below the ~133k samples required to
     // overflow this accumulator at full-scale int8 IQ. Keeping it 32-bit
     // avoids dragging the 64-bit division helper into the small M4 image.
-    uint32_t sum = 0;
+    uint32_t sum = 0, sum128 = 0, sum256 = 0;
     for (std::size_t n = 0; n < buffer.count; ++n) {
         const int32_t i = buffer.p[n].real();
         const int32_t q = buffer.p[n].imag();
-        sum += static_cast<uint32_t>(i * i + q * q);
+        const uint32_t sample_power = static_cast<uint32_t>(i * i + q * q);
+        sum += sample_power;
+        sum128 += sample_power;
+        sum256 += sample_power;
+        if ((n & 127u) == 127u) {
+            out.max128 = std::max(out.max128, sum128 >> 7);
+            sum128 = 0;
+        }
+        if ((n & 255u) == 255u) {
+            out.max256 = std::max(out.max256, sum256 >> 8);
+            sum256 = 0;
+        }
     }
-    return sum / static_cast<uint32_t>(buffer.count);
+    const std::size_t tail128 = buffer.count & 127u;
+    const std::size_t tail256 = buffer.count & 255u;
+    if (tail128) out.max128 = std::max(out.max128, sum128 / static_cast<uint32_t>(tail128));
+    if (tail256) out.max256 = std::max(out.max256, sum256 / static_cast<uint32_t>(tail256));
+    out.full = sum / static_cast<uint32_t>(buffer.count);
+    return out;
 }
 
 void WifiAimProcessor::remember_pretrigger(const buffer_c8_t& buffer) {
@@ -72,6 +89,104 @@ void WifiAimProcessor::reset_probe_diag() {
     dsss_successes_ = 0;
 }
 
+namespace {
+void sat_inc(uint16_t& value) {
+    if (value != 0xFFFFu) ++value;
+}
+}
+
+void WifiAimProcessor::reset_profiler() {
+    profile_counts_.fill(0);
+    dsss_stage_counts_.fill(0);
+    rejected_stats_ = {};
+    accepted_stats_ = {};
+}
+
+void WifiAimProcessor::fill_dsss_counters(wifiaim::WireApReport& wire) const {
+    // Fix8w-DIAG subtype. Eleven uint16_t counters fit in the existing SSID
+    // payload; no WireApReport or stock message ABI changes are required.
+    wire.ssid_len = 0xF8u;
+    std::memcpy(wire.ssid, dsss_stage_counts_.data(),
+                wifiaim::DSSS_STAGE_COUNT * sizeof(uint16_t));
+}
+
+void WifiAimProcessor::update_profile_stats(wifiaim::ProfilerStatsWire& stats,
+                                             const wifiaim::M4OfdmTrace& trace,
+                                             uint16_t clipped) {
+    const uint16_t old_count = stats.captures;
+    if (stats.captures != 0xFFFFu) ++stats.captures;
+    const uint16_t count = stats.captures;
+    if (!old_count) {
+        stats.stf_min = stats.stf_mean = stats.stf_max = trace.stf_score;
+        stats.ltf_min = stats.ltf_mean = stats.ltf_max = trace.ltf_score;
+    } else if (count != old_count) {
+        stats.stf_min = std::min(stats.stf_min, trace.stf_score);
+        stats.stf_max = std::max(stats.stf_max, trace.stf_score);
+        stats.stf_mean = static_cast<uint8_t>(
+            static_cast<int32_t>(stats.stf_mean) +
+            (static_cast<int32_t>(trace.stf_score) - stats.stf_mean) / count);
+        stats.ltf_min = std::min(stats.ltf_min, trace.ltf_score);
+        stats.ltf_max = std::max(stats.ltf_max, trace.ltf_score);
+        stats.ltf_mean = static_cast<uint8_t>(
+            static_cast<int32_t>(stats.ltf_mean) +
+            (static_cast<int32_t>(trace.ltf_score) - stats.ltf_mean) / count);
+    }
+    if (trace.stage >= 1u) {
+        const uint16_t old_cfo_count = stats.cfo_captures;
+        if (stats.cfo_captures != 0xFFFFu) ++stats.cfo_captures;
+        if (!old_cfo_count) {
+            stats.cfo_min = stats.cfo_mean = stats.cfo_max = trace.cfo_hz;
+        } else if (stats.cfo_captures != old_cfo_count) {
+            stats.cfo_min = std::min(stats.cfo_min, trace.cfo_hz);
+            stats.cfo_max = std::max(stats.cfo_max, trace.cfo_hz);
+            stats.cfo_mean += (trace.cfo_hz - stats.cfo_mean) / stats.cfo_captures;
+        }
+    }
+    const uint32_t room = 0xFFFFFFFFu - stats.clipped_components;
+    stats.clipped_components += std::min<uint32_t>(room, clipped);
+}
+
+void WifiAimProcessor::fill_profile_counters(wifiaim::WireApReport& wire) const {
+    wire.ssid_len = 0xFBu;
+    std::memcpy(wire.bssid, profile_counts_.data(), 3u * sizeof(uint16_t));
+    std::memcpy(wire.ssid, profile_counts_.data() + 3u,
+                (wifiaim::PROFILE_COUNTER_COUNT - 3u) * sizeof(uint16_t));
+}
+
+void WifiAimProcessor::fill_profile_stats(wifiaim::WireApReport& wire, uint8_t subtype,
+                                          const wifiaim::ProfilerStatsWire& stats) const {
+    wire.ssid_len = subtype;
+    std::memcpy(wire.ssid, &stats, sizeof(stats));
+}
+
+void WifiAimProcessor::send_profiler_snapshot() {
+    wifiaim::WireApReport wire{};
+    wire.channel = tuned_channel_;
+    wire.flags = 0x80u;
+    wire.capture_total = static_cast<uint16_t>(capture_attempts_ & 0x3FFFu);
+    wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);
+    fill_profile_counters(wire);
+    send_wire_report(wire, diag_packet_);
+
+    wire = {};
+    wire.channel = tuned_channel_;
+    wire.flags = 0x80u;
+    fill_profile_stats(wire, 0xFCu, rejected_stats_);
+    send_wire_report(wire, profile_rejected_packet_);
+
+    wire = {};
+    wire.channel = tuned_channel_;
+    wire.flags = 0x80u;
+    fill_profile_stats(wire, 0xFDu, accepted_stats_);
+    send_wire_report(wire, profile_accepted_packet_);
+
+    wire = {};
+    wire.channel = tuned_channel_;
+    wire.flags = 0x80u;
+    fill_dsss_counters(wire);
+    send_wire_report(wire, profile_dsss_packet_);
+}
+
 void WifiAimProcessor::fill_probe_diag(wifiaim::WireApReport& wire) const {
     // Diagnostic-only packets do not use BSSID/SSID fields. Reuse those six
     // bytes as a compact Fix8a telemetry payload without changing WireApReport
@@ -106,11 +221,11 @@ void WifiAimProcessor::send_diag_state() {
     wire.flags = 0x80u;
     wire.capture_total = static_cast<uint16_t>(capture_attempts_ & 0x3FFFu);
     wire.decode_total = static_cast<uint16_t>(decode_successes_ & 0x3FFFu);
-    fill_probe_diag(wire);
+    fill_profile_counters(wire);
     send_wire_report(wire, diag_packet_);
 }
 
-void WifiAimProcessor::send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace) {
+void WifiAimProcessor::send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace, uint16_t clipped) {
     // Fix8t-DIAG: one self-contained snapshot describing the frozen buffer.
     // The stock FSKPacket transport remains unchanged; 0xFA identifies this
     // diagnostic subtype and no pointer to M4 RAM crosses the core boundary.
@@ -131,6 +246,8 @@ void WifiAimProcessor::send_diag_capture_ready(const wifiaim::M4OfdmTrace& trace
     wire.ssid[2] = static_cast<char>(trace.ltf_score);      // SQ for this capture
     std::memcpy(&wire.ssid[3], &trace.ltf_position, sizeof(trace.ltf_position));
     std::memcpy(&wire.ssid[5], &trace.cfo_hz, sizeof(trace.cfo_hz));
+    wire.ssid[9] = static_cast<char>(trace.stf_score);
+    std::memcpy(&wire.ssid[10], &clipped, sizeof(clipped));
     send_wire_report(wire, diag_packet_);
 }
 
@@ -156,6 +273,27 @@ void WifiAimProcessor::finish_capture() {
     // Fix8g: reuse the cheap raw Barker probe as an admission signal for the
     // expensive DSSS fallback. The decoder still performs final validation.
     const bool decoded = decoder_.decode(capture_.data(), capture_count_, ap, &ofdm_trace, probe.barker_score);
+    uint16_t clipped = 0;
+    for (std::size_t n = 0; n < capture_count_; ++n) {
+        const int16_t i = capture_[n].i;
+        const int16_t q = capture_[n].q;
+        if (i <= -127 || i >= 127) ++clipped;
+        if (q <= -127 || q >= 127) ++clipped;
+    }
+
+    if (ofdm_trace.stf_admitted) sat_inc(profile_counts_[wifiaim::PROFILE_STF]);
+    if (ofdm_trace.stage >= 1u) sat_inc(profile_counts_[wifiaim::PROFILE_LTF]);
+    if (ofdm_trace.stage >= 3u) sat_inc(profile_counts_[wifiaim::PROFILE_SIGNAL_VITERBI]);
+    if (ofdm_trace.stage >= 4u) sat_inc(profile_counts_[wifiaim::PROFILE_SIGNAL_PARITY]);
+    if (ofdm_trace.stage >= 6u) sat_inc(profile_counts_[wifiaim::PROFILE_RATE_LENGTH]);
+    if (ofdm_trace.stage >= 7u) sat_inc(profile_counts_[wifiaim::PROFILE_DATA_VITERBI]);
+    if (ofdm_trace.post_stage >= 1u) sat_inc(profile_counts_[wifiaim::PROFILE_SERVICE]);
+    if (ofdm_trace.post_stage >= 2u) sat_inc(profile_counts_[wifiaim::PROFILE_PROTOCOL]);
+    if (ofdm_trace.post_stage >= 3u) sat_inc(profile_counts_[wifiaim::PROFILE_MANAGEMENT]);
+    if (ofdm_trace.post_stage >= 4u) sat_inc(profile_counts_[wifiaim::PROFILE_BEACON_PROBE]);
+    if (ofdm_trace.post_stage >= 5u) sat_inc(profile_counts_[wifiaim::PROFILE_SSID]);
+    if (decoded) sat_inc(profile_counts_[wifiaim::PROFILE_FINAL_AP]);
+    update_profile_stats(decoded ? accepted_stats_ : rejected_stats_, ofdm_trace, clipped);
     for (uint8_t i = 0; i < ofdm_trace.stage && i < ofdm_stage_hits_.size(); ++i)
         if (ofdm_stage_hits_[i] != 0xFFu) ++ofdm_stage_hits_[i];
     ofdm_ltf_peak_ = std::max(ofdm_ltf_peak_, ofdm_trace.ltf_score);
@@ -182,6 +320,10 @@ void WifiAimProcessor::finish_capture() {
     }
     if (ofdm_trace.dsss_attempted && dsss_attempts_ != 0xFFu) ++dsss_attempts_;
     if (ofdm_trace.dsss_success && dsss_successes_ != 0xFFu) ++dsss_successes_;
+    for (uint8_t stage = 0; stage < wifiaim::DSSS_STAGE_COUNT; ++stage) {
+        if (ofdm_trace.dsss_stage_mask & static_cast<uint16_t>(1u << stage))
+            sat_inc(dsss_stage_counts_[stage]);
+    }
     if (decoded) ++decode_successes_;
 
     wifiaim::WireApReport wire{};
@@ -208,7 +350,7 @@ void WifiAimProcessor::finish_capture() {
         // second. We only need periodic progress here; exact totals are also
         // sent on every decoder/channel state change.
         wire.flags = 0x80u;
-        fill_probe_diag(wire);
+        fill_profile_counters(wire);
         send_wire_report(wire, diag_packet_);
     }
 
@@ -219,7 +361,7 @@ void WifiAimProcessor::finish_capture() {
         diag_capture_pending_ = true;
         diag_dump_offset_ = 0;
         state_ = State::Frozen;
-        send_diag_capture_ready(ofdm_trace);
+        send_diag_capture_ready(ofdm_trace, clipped);
         return;
     }
 
@@ -249,7 +391,8 @@ void WifiAimProcessor::execute(const buffer_c8_t& buffer) {
     if (state_ == State::Frozen) return;
     if (!enabled_) return;
 
-    const uint32_t p = block_power(buffer);
+    const EnergyPowers powers = block_powers(buffer);
+    const uint32_t p = powers.full;
 
     if (state_ == State::Warmup) {
         // Learn a local background estimate immediately after a retune. Also
@@ -272,7 +415,12 @@ void WifiAimProcessor::execute(const buffer_c8_t& buffer) {
         // sees the Wi-Fi preamble/LTF even if the trigger occurs one block late.
         if (p < noise_power_ * 2u) noise_power_ = (noise_power_ * 31u + p) / 32u;
         const uint32_t threshold = noise_power_ + (noise_power_ >> 2) + 32u;  // ~1.25x + margin
+        // Fix8v shadow profilers only: production capture remains gated by
+        // the unchanged full-block mean below.
+        if (powers.max256 >= threshold) sat_inc(profile_counts_[wifiaim::PROFILE_SHADOW_256]);
+        if (powers.max128 >= threshold) sat_inc(profile_counts_[wifiaim::PROFILE_SHADOW_128]);
         if (p >= threshold) {
+            sat_inc(profile_counts_[wifiaim::PROFILE_ENERGY]);
             ++capture_attempts_;
             capture_count_ = pretrigger_count_;
             copy_into_capture(buffer);
@@ -301,8 +449,9 @@ void WifiAimProcessor::on_message(const Message* const message) {
             // A scan always begins by enabling channel 1. Reset only the Fix8a
             // per-scan probe values here; C/D keep their existing cumulative
             // semantics and are delta'd by M0 as before.
-            if (m.start && tuned_channel_ == 1u) {
+            if (m.start && !enabled_) {
                 reset_probe_diag();
+                reset_profiler();
                 diag_capture_saved_ = false;
             }
 
@@ -317,7 +466,7 @@ void WifiAimProcessor::on_message(const Message* const message) {
                     capture_count_ = 0;
                     pretrigger_count_ = 0;
                     state_ = State::Waiting;
-                    send_diag_state();
+                    send_profiler_snapshot();
                 }
                 break;
             }
@@ -330,7 +479,7 @@ void WifiAimProcessor::on_message(const Message* const message) {
             state_ = enabled_ ? State::Warmup : State::Waiting;
             // Exact counters + channel acknowledgement at every state/channel
             // transition; this also gives exact final counters when SCAN ends.
-            send_diag_state();
+            send_profiler_snapshot();
             break;
         }
         case Message::ID::CaptureConfig: {

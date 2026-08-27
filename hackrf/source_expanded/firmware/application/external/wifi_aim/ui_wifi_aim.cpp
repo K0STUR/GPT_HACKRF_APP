@@ -16,9 +16,6 @@ rf::Frequency channel_frequency(uint8_t ch) {
     if (ch >= 1 && ch <= 13) return 2'412'000'000ULL + static_cast<rf::Frequency>(ch - 1) * 5'000'000ULL;
     return 2'412'000'000ULL;
 }
-bool same_bssid(const std::array<uint8_t,6>& a, const uint8_t* b) {
-    return std::memcmp(a.data(), b, 6) == 0;
-}
 void meta_text(char* out, std::size_t& pos, const char* text) {
     while (*text) out[pos++] = *text++;
 }
@@ -72,7 +69,6 @@ class BoundedC8Writer final : public stream::Writer {
 };
 
 WifiAimView::WifiAimView(NavigationView& nav) : nav_(nav) {
-    target_levels_.fill(-1200);
     add_children({&field_lna,&field_vga,&field_rf_amp,&rssi,
                   &text_status,&text_ap,&text_bssid,&text_channel,&text_level,
                   &text_avg,&text_peak,&text_delta,&button_scan,&button_prev,
@@ -87,16 +83,18 @@ WifiAimView::WifiAimView(NavigationView& nav) : nav_(nav) {
 
     button_scan.on_select = [this](Button&) { start_scan(); };
     button_prev.on_select = [this](Button&) {
-        if (ap_count_) { selected_ = (selected_ + ap_count_ - 1) % ap_count_; update_ap_display(); }
+        if (!scanning_) { tune_channel(current_channel_ > 1 ? current_channel_ - 1 : 13); update_profile_display(); }
     };
     button_next.on_select = [this](Button&) {
-        if (ap_count_) { selected_ = (selected_ + 1) % ap_count_; update_ap_display(); }
+        if (!scanning_) { tune_channel(current_channel_ < 13 ? current_channel_ + 1 : 1); update_profile_display(); }
     };
-    button_target.on_select = [this](Button&) { select_target(); };
-    button_ref.on_select = [this](Button&) {
-        if (target_level_count_) { ref_x10_ = target_average(); ref_valid_ = true; update_aim_display(target_levels_[(target_level_pos_+15)%16]); }
+    button_target.on_select = [this](Button&) { profile_page_ = 0u; update_profile_display(); };
+    button_ref.on_select = [this](Button&) { profile_page_ = 1u; update_profile_display(); };
+    // ACC alternates accepted-capture statistics and the Fix8w DSSS pipeline.
+    button_mode.on_select = [this](Button&) {
+        profile_page_ = profile_page_ == 2u ? 3u : 2u;
+        update_profile_display();
     };
-    button_mode.on_select = [this](Button&) { cycle_mode(); };
 }
 
 WifiAimView::~WifiAimView() {
@@ -135,28 +133,29 @@ uint16_t WifiAimView::scan_decode_delta() const {
 
 void WifiAimView::update_scan_status() {
     if (!scanning_) return;
-    text_status.set("S " + to_string_dec_uint(scan_channel_) + "/13 C" +
-                    to_string_dec_uint(scan_capture_delta()) + " D" +
-                    to_string_dec_uint(scan_decode_delta()) + " M" +
-                    to_string_dec_uint(diag_ack_channel_));
+    text_status.set(std::string(diag_capture_done_ ? "IQ SAVED " : "PROF ") +
+                    "CH" + to_string_dec_uint(current_channel_) + " " +
+                    to_string_dec_uint(timer_ms_ / 1000u) + "/10s E" +
+                    to_string_dec_uint(profile_counts_[wifiaim::PROFILE_ENERGY]));
 }
 
 void WifiAimView::update_done_status() {
-    if (scanning_ || target_set_) return;
-    text_status.set("Done " + to_string_dec_uint(ap_count_) + "AP C" +
-                    to_string_dec_uint(scan_capture_delta()) + " D" +
-                    to_string_dec_uint(scan_decode_delta()) + " M" +
-                    to_string_dec_uint(diag_ack_channel_));
+    if (scanning_) return;
+    text_status.set("DONE CH" + to_string_dec_uint(current_channel_) + " AP" +
+                    to_string_dec_uint(profile_counts_[wifiaim::PROFILE_FINAL_AP]));
 }
 
 void WifiAimView::start_scan() {
-    ap_count_ = 0; selected_ = 0; target_set_ = false;
-    target_level_count_ = target_level_pos_ = 0; peak_x10_ = -1200; ref_valid_ = false;
     scan_capture_base_ = diag_capture_total_;
     scan_decode_base_ = diag_decode_total_;
     diag_ack_channel_ = 0;
-    scanning_ = true; scan_channel_ = 1; timer_ms_ = 0;
-    tune_channel(scan_channel_); set_decoder(true);
+    profile_counts_.fill(0);
+    profile_rejected_ = {};
+    profile_accepted_ = {};
+    dsss_stage_counts_.fill(0);
+    diag_capture_done_ = false;
+    scanning_ = true; scan_channel_ = current_channel_; timer_ms_ = 0;
+    tune_channel(current_channel_); set_decoder(true);
     update_scan_status();
 }
 
@@ -165,29 +164,7 @@ void WifiAimView::end_scan() {
     // Initial value; M4 final disabled-state telemetry refreshes C/D/M and
     // Fix8a probe values once more after the last channel completes.
     update_done_status();
-    update_ap_display();
-}
-
-void WifiAimView::select_target() {
-    if (!ap_count_ || selected_ >= ap_count_) return;
-    const auto& ap = aps_[selected_];
-    target_set_ = true; target_bssid_ = ap.bssid; target_ssid_ = ap.ssid; target_ssid_len_ = ap.ssid_len; target_channel_ = ap.channel;
-    scanning_ = false; tune_channel(target_channel_);
-    target_level_count_ = target_level_pos_ = 0; peak_x10_ = -1200; ref_valid_ = false;
-    auto_phase_ms_ = 0;
-    if (decode_mode_ == DecodeMode::Off) set_decoder(false); else set_decoder(true);
-    text_status.set("AIM target locked");
-    update_ap_display();
-}
-
-void WifiAimView::cycle_mode() {
-    if (decode_mode_ == DecodeMode::Off) decode_mode_ = DecodeMode::Auto;
-    else if (decode_mode_ == DecodeMode::Auto) decode_mode_ = DecodeMode::On;
-    else decode_mode_ = DecodeMode::Off;
-    button_mode.set_text(decode_mode_ == DecodeMode::Off ? "OFF" : decode_mode_ == DecodeMode::Auto ? "AUTO" : "ON");
-    auto_phase_ms_ = 0;
-    if (!target_set_ || scanning_) return;
-    set_decoder(decode_mode_ != DecodeMode::Off);
+    update_profile_display();
 }
 
 void WifiAimView::on_frame_sync() {
@@ -197,19 +174,9 @@ void WifiAimView::on_frame_sync() {
         // Do not retune while the selected 1 ms buffer is being drained to SD.
         if (diag_capture_active_) return;
         timer_ms_ += frame_ms;
-        // Give normal ~100 ms beacon intervals several chances per channel.
-        if (timer_ms_ >= 1000) {
-            timer_ms_ = 0;
-            if (scan_channel_ >= 13) { end_scan(); return; }
-            ++scan_channel_; tune_channel(scan_channel_);
-            update_scan_status();
-        }
+        if (timer_ms_ >= 10000u) { end_scan(); return; }
+        update_scan_status();
         return;
-    }
-    if (target_set_ && decode_mode_ == DecodeMode::Auto) {
-        // 300 ms decode window, 200 ms quiet window. This really gates M4 DSP.
-        auto_phase_ms_ = (auto_phase_ms_ + frame_ms) % 500;
-        set_decoder(auto_phase_ms_ < 300);
     }
 }
 
@@ -233,90 +200,29 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
         return;
     }
 
-    // bit7 marks a diagnostics-only packet; it is not an access point report.
-    if (w.flags & 0x80u) {
-        // While aiming, diagnostics must never overwrite LIVE/AVG/PEAK/DELTA.
-        if (target_set_) return;
-
-        // Fix8a reuses otherwise-unused diagnostic BSSID bytes. ssid_len=0xF8
-        // distinguishes this from older Fix7b/Fix7c telemetry.
-        if (w.ssid_len == 0xF8u || w.ssid_len == 0xF9u) {
-            text_level.set("HIT 16/64/B " + to_string_dec_uint(w.bssid[0]) + "/" +
-                           to_string_dec_uint(w.bssid[1]) + "/" + to_string_dec_uint(w.bssid[2]));
-            text_avg.set("Q   16/64/B " + to_string_dec_uint(w.bssid[3]) + "/" +
-                         to_string_dec_uint(w.bssid[4]) + "/" + to_string_dec_uint(w.bssid[5]));
-            text_peak.set("M4 CH: " + to_string_dec_uint(diag_ack_channel_));
-        }
-        if (w.ssid_len == 0xF9u) {
-            text_ap.set("OF L/H/V/P " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[0])) + "/" +
-                        to_string_dec_uint(static_cast<uint8_t>(w.ssid[1])) + "/" +
-                        to_string_dec_uint(static_cast<uint8_t>(w.ssid[2])) + "/" +
-                        to_string_dec_uint(static_cast<uint8_t>(w.ssid[3])));
-            text_bssid.set("OF R/N/D/M " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[4])) + "/" +
-                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[5])) + "/" +
-                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[6])) + "/" +
-                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[7])));
-            const uint16_t n = static_cast<uint16_t>(static_cast<uint8_t>(w.ssid[10])) |
-                               static_cast<uint16_t>(static_cast<uint8_t>(w.ssid[11]) << 8);
-            text_channel.set("SQ " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[8])) +
-                             " R " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[9])) +
-                             " N " + to_string_dec_uint(n));
-
-            text_delta.set("P S/F/G/B/I " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[12])) + "/" +
-                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[13])) + "/" +
-                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[14])) + "/" +
-                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[15])) + "/" +
-                           to_string_dec_uint(static_cast<uint8_t>(w.ssid[16])));
-            text_peak.set("DS A/S " + to_string_dec_uint(static_cast<uint8_t>(w.ssid[19])) + "/" +
-                          to_string_dec_uint(static_cast<uint8_t>(w.ssid[20])) + " FC " +
-                          to_string_dec_uint(static_cast<uint8_t>(w.ssid[17])) + "/" +
-                          to_string_dec_uint(static_cast<uint8_t>(w.ssid[18])));
-        }
-        update_done_status();
-        // Fix8e usability: the final disabled-state telemetry arrives after
-        // end_scan(). If an AP was found, restore the user-facing AP/BSSID/CH
-        // fields after recording diagnostics instead of hiding the result.
-        if (!scanning_ && ap_count_) update_ap_display();
+    if ((w.flags & 0x80u) && w.ssid_len == 0xFBu) {
+        std::memcpy(profile_counts_.data(), w.bssid, 3u * sizeof(uint16_t));
+        std::memcpy(profile_counts_.data() + 3u, w.ssid,
+                    (wifiaim::PROFILE_COUNTER_COUNT - 3u) * sizeof(uint16_t));
+        update_profile_display();
+        return;
+    }
+    if ((w.flags & 0x80u) && w.ssid_len == 0xF8u) {
+        std::memcpy(dsss_stage_counts_.data(), w.ssid,
+                    wifiaim::DSSS_STAGE_COUNT * sizeof(uint16_t));
+        update_profile_display();
+        return;
+    }
+    if ((w.flags & 0x80u) && (w.ssid_len == 0xFCu || w.ssid_len == 0xFDu)) {
+        auto& stats = w.ssid_len == 0xFCu ? profile_rejected_ : profile_accepted_;
+        std::memcpy(&stats, w.ssid, sizeof(stats));
+        update_profile_display();
         return;
     }
 
-    std::size_t ap_index = ap_count_;
-    for (std::size_t i = 0; i < ap_count_; ++i) {
-        if (same_bssid(aps_[i].bssid, w.bssid)) { ap_index = i; break; }
-    }
-    if (ap_index == ap_count_) {
-        if (ap_count_ >= kMaxAps) return;
-        ApEntry& a = aps_[ap_count_++];
-        for (std::size_t i = 0; i < 6; ++i) a.bssid[i] = w.bssid[i];
-        const bool hidden = (w.flags & 1) != 0;
-        if (hidden) {
-            static constexpr char kHidden[] = "<hidden>";
-            a.ssid_len = sizeof(kHidden) - 1;
-            std::memcpy(a.ssid.data(), kHidden, a.ssid_len);
-        } else {
-            a.ssid_len = std::min<uint8_t>(w.ssid_len, 32);
-            if (a.ssid_len) std::memcpy(a.ssid.data(), w.ssid, a.ssid_len);
-        }
-        a.ssid[a.ssid_len] = 0;
-        a.channel = w.channel; a.last_db_x10 = w.packet_db_x10; a.hits = 1; a.phy_rate_mbps = w.phy_rate_mbps;
-        ap_index = ap_count_ - 1;
-    } else {
-        ApEntry& a = aps_[ap_index];
-        a.last_db_x10 = w.packet_db_x10; a.phy_rate_mbps = w.phy_rate_mbps; ++a.hits;
-        if (a.ssid_len && a.ssid[0] == '<' && w.ssid_len && !(w.flags & 1)) {
-            a.ssid_len = std::min<uint8_t>(w.ssid_len, 32);
-            std::memcpy(a.ssid.data(), w.ssid, a.ssid_len);
-            a.ssid[a.ssid_len] = 0;
-        }
-    }
-
-    if (target_set_ && same_bssid(target_bssid_, w.bssid)) {
-        push_target_level(w.packet_db_x10);
-        update_aim_display(w.packet_db_x10);
-    } else if (!scanning_) {
-        update_ap_display();
-        update_done_status();
-    }
+    // Real AP reports are already counted by M4 as PROFILE_FINAL_AP. Fix8v
+    // intentionally omits the old AP browser/aim mode to fit the profiler in
+    // the 32 kB external-app slot without changing the decoder.
 }
 
 void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
@@ -328,11 +234,13 @@ void WifiAimView::start_diag_capture(const wifiaim::WireApReport& wire) {
     diag_metadata_.ofdm_stage_hits[6] = static_cast<uint8_t>(wire.ssid[0]);
     diag_metadata_.ofdm_stage_hits[7] = static_cast<uint8_t>(wire.ssid[1]);
     diag_metadata_.sq = static_cast<uint8_t>(wire.ssid[2]);
+    diag_metadata_.stf = static_cast<uint8_t>(wire.ssid[9]);
     diag_metadata_.lna_gain_db = receiver_model.lna();
     diag_metadata_.vga_gain_db = receiver_model.vga();
     diag_metadata_.rf_amp = receiver_model.rf_amp();
     std::memcpy(&diag_metadata_.ltf_position, &wire.ssid[3], sizeof(diag_metadata_.ltf_position));
     std::memcpy(&diag_metadata_.cfo_hz, &wire.ssid[5], sizeof(diag_metadata_.cfo_hz));
+    std::memcpy(&diag_metadata_.clipped_components, &wire.ssid[10], sizeof(diag_metadata_.clipped_components));
 
     const auto dir_error = ensure_directory(u"WIFI_DIAG");
     if (dir_error.code()) {
@@ -396,7 +304,7 @@ Optional<File::Error> WifiAimView::write_diag_metadata() {
     const auto create_error = metadata.create(diag_txt_path_);
     if (create_error.is_valid()) return create_error;
 
-    char text[320];
+    char text[420];
     std::size_t pos = 0;
 #define META_LABEL(label, value)       \
     do {                               \
@@ -411,6 +319,9 @@ Optional<File::Error> WifiAimView::write_diag_metadata() {
     META_LABEL("vga_gain_db=", diag_metadata_.vga_gain_db);
     META_LABEL("rf_amp=", diag_metadata_.rf_amp ? 1u : 0u);
     META_LABEL("SQ=", diag_metadata_.sq);
+    META_LABEL("STF=", diag_metadata_.stf);
+    META_LABEL("clipped_components=", diag_metadata_.clipped_components);
+    META_LABEL("clipping_permille=", static_cast<uint32_t>(diag_metadata_.clipped_components) / 40u);
     meta_text(text, pos, "L/H/V/P=");
     for (std::size_t i = 0; i < 4; ++i) {
         if (i) text[pos++] = '/';
@@ -434,54 +345,65 @@ Optional<File::Error> WifiAimView::write_diag_metadata() {
     return {};
 }
 
-void WifiAimView::push_target_level(int16_t x) {
-    target_levels_[target_level_pos_] = x;
-    target_level_pos_ = (target_level_pos_ + 1) % target_levels_.size();
-    if (target_level_count_ < target_levels_.size()) ++target_level_count_;
-    if (x > peak_x10_) peak_x10_ = x;
+std::string WifiAimView::signed_dec(int32_t value) const {
+    if (value >= 0) return to_string_dec_uint(static_cast<uint32_t>(value));
+    return "-" + to_string_dec_uint(static_cast<uint32_t>(-static_cast<int64_t>(value)));
 }
 
-int16_t WifiAimView::target_average() const {
-    if (!target_level_count_) return -1200;
-    int32_t sum = 0;
-    for (std::size_t i=0;i<target_level_count_;++i) sum += target_levels_[i];
-    return static_cast<int16_t>(sum / static_cast<int32_t>(target_level_count_));
-}
+void WifiAimView::update_profile_display() {
+    if (scanning_) update_scan_status();
+    else update_done_status();
 
-std::string WifiAimView::db10(int16_t x10) const {
-    const bool neg = x10 < 0;
-    int32_t a = neg ? -static_cast<int32_t>(x10) : x10;
-    return std::string(neg ? "-" : "") + to_string_dec_uint(static_cast<uint32_t>(a/10)) + "." + to_string_dec_uint(static_cast<uint32_t>(a%10)) + " dBr";
-}
-
-std::string WifiAimView::mac(const std::array<uint8_t,6>& b) const {
-    return to_string_mac_address(const_cast<uint8_t*>(b.data()), 6, false);
-}
-
-void WifiAimView::update_ap_display() {
-    if (target_set_) {
-        text_ap.set("AP: " + std::string(target_ssid_.data(), target_ssid_len_));
-        text_bssid.set("BSSID: " + mac(target_bssid_));
-        text_channel.set("CH: " + to_string_dec_uint(target_channel_) + " / " + to_string_dec_uint(channel_frequency(target_channel_)/1'000'000ULL) + "MHz");
+    if (profile_page_ == 0u) {
+        text_ap.set("E/256/128 " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_ENERGY]) + "/" +
+                    to_string_dec_uint(profile_counts_[wifiaim::PROFILE_SHADOW_256]) + "/" +
+                    to_string_dec_uint(profile_counts_[wifiaim::PROFILE_SHADOW_128]));
+        text_bssid.set("STF/LTF " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_STF]) + "/" +
+                       to_string_dec_uint(profile_counts_[wifiaim::PROFILE_LTF]));
+        text_channel.set("SIG V/P/RL " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_SIGNAL_VITERBI]) + "/" +
+                         to_string_dec_uint(profile_counts_[wifiaim::PROFILE_SIGNAL_PARITY]) + "/" +
+                         to_string_dec_uint(profile_counts_[wifiaim::PROFILE_RATE_LENGTH]));
+        text_level.set("DATA/SVC " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_DATA_VITERBI]) + "/" +
+                       to_string_dec_uint(profile_counts_[wifiaim::PROFILE_SERVICE]));
+        text_avg.set("VER/MGMT " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_PROTOCOL]) + "/" +
+                     to_string_dec_uint(profile_counts_[wifiaim::PROFILE_MANAGEMENT]));
+        text_peak.set("BPR/SSID " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_BEACON_PROBE]) + "/" +
+                      to_string_dec_uint(profile_counts_[wifiaim::PROFILE_SSID]));
+        text_delta.set("FINAL AP " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_FINAL_AP]));
         return;
     }
-    if (!ap_count_) {
-        text_ap.set("AP: -"); text_bssid.set("BSSID: -"); text_channel.set("CH: -"); return;
-    }
-    if (selected_ >= ap_count_) selected_ = 0;
-    const auto& a=aps_[selected_];
-    text_ap.set("AP " + to_string_dec_uint(selected_+1) + "/" + to_string_dec_uint(ap_count_) + ": " + std::string(a.ssid.data(), a.ssid_len));
-    text_bssid.set("BSSID: " + mac(a.bssid));
-    text_channel.set("CH: " + to_string_dec_uint(a.channel) + "  " + to_string_dec_uint(a.phy_rate_mbps) + "M  last " + db10(a.last_db_x10));
-}
 
-void WifiAimView::update_aim_display(int16_t live) {
-    text_level.set("LIVE target: " + db10(live));
-    const int16_t avg=target_average();
-    text_avg.set("AVG target: " + db10(avg));
-    text_peak.set("PEAK target: " + db10(peak_x10_));
-    if (ref_valid_) text_delta.set("DELTA REF: " + db10(static_cast<int16_t>(avg-ref_x10_)));
-    else text_delta.set("DELTA REF: press REF");
+    if (profile_page_ == 3u) {
+        text_ap.set("DSSS pipeline");
+        text_bssid.set("ADM/BARK " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_ADMISSION]) + "/" +
+                       to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_BARKER_CORRELATION]));
+        text_channel.set("TIME/DIFF " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_SYMBOL_TIMING]) + "/" +
+                         to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_DIFFERENTIAL_DECODE]));
+        text_level.set("DSCR/PLCP " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_DESCRAMBLE]) + "/" +
+                       to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_PLCP_HEADER]));
+        text_avg.set("PAY/MAC " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_PAYLOAD]) + "/" +
+                     to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_MAC_TYPE]));
+        text_peak.set("BPR/SSID " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_BEACON_PROBE]) + "/" +
+                      to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_SSID]));
+        text_delta.set("DSSS AP " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_FINAL_AP]));
+        return;
+    }
+
+    const auto& s = profile_page_ == 1u ? profile_rejected_ : profile_accepted_;
+    text_ap.set(profile_page_ == 1u ? "REJECTED captures" : "ACCEPTED captures");
+    text_bssid.set("N " + to_string_dec_uint(s.captures));
+    text_channel.set("STF min/avg/max " + to_string_dec_uint(s.stf_min) + "/" +
+                     to_string_dec_uint(s.stf_mean) + "/" + to_string_dec_uint(s.stf_max));
+    text_level.set("LTF min/avg/max " + to_string_dec_uint(s.ltf_min) + "/" +
+                   to_string_dec_uint(s.ltf_mean) + "/" + to_string_dec_uint(s.ltf_max));
+    text_avg.set("CFO min " + signed_dec(s.cfo_min));
+    text_peak.set("CFO avg/max " + signed_dec(s.cfo_mean) + "/" + signed_dec(s.cfo_max));
+    const uint32_t clip_permille = s.captures
+        ? s.clipped_components / (static_cast<uint32_t>(s.captures) * 40u)
+        : 0u;
+    text_delta.set("CLIP " + to_string_dec_uint(s.clipped_components) + " " +
+                   to_string_dec_uint(clip_permille / 10u) + "." +
+                   to_string_dec_uint(clip_permille % 10u) + "%");
 }
 
 } // namespace ui::external_app::wifi_aim

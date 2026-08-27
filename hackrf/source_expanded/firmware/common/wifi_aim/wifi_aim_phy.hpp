@@ -23,6 +23,8 @@ struct M4ApReport {
 // 5=RATE, 6=LENGTH, 7=DATA Viterbi, 8=MAC beacon/probe parser.
 struct M4OfdmTrace {
     uint8_t stage{0};
+    uint8_t stf_score{0};      // Fix8v maximum normalized lag-16 score, 0..100
+    bool stf_admitted{false};  // sustained Fix8u STF gate passed
     uint8_t ltf_score{0};      // Fix8c repetition sync quality, 0..100
     uint16_t ltf_position{0};  // Fix8t: absolute LTF1 sample index in the frozen capture
     int32_t cfo_hz{0};         // Fix8t: estimated carrier offset at 20 MS/s
@@ -39,6 +41,26 @@ struct M4OfdmTrace {
     uint8_t frame_subtype{0xFF};
     bool dsss_attempted{false};
     bool dsss_success{false};
+    uint16_t dsss_stage_mask{0};
+};
+
+enum M4DsssStage : uint8_t {
+    DSSS_ADMISSION = 0,
+    DSSS_BARKER_CORRELATION,
+    DSSS_SYMBOL_TIMING,
+    DSSS_DIFFERENTIAL_DECODE,
+    DSSS_DESCRAMBLE,
+    DSSS_PLCP_HEADER,
+    DSSS_PAYLOAD,
+    DSSS_MAC_TYPE,
+    DSSS_BEACON_PROBE,
+    DSSS_SSID,
+    DSSS_FINAL_AP,
+    DSSS_STAGE_COUNT
+};
+
+struct M4DsssTrace {
+    uint16_t stage_mask{0};
 };
 
 // Legacy 802.11b, long preamble, 1 Mbit/s DBPSK/DSSS.
@@ -46,7 +68,8 @@ class M4LegacyWifiDecoder {
    public:
     static constexpr std::size_t kMaxBits = 2048;
     static constexpr std::size_t kMaxPrefixBytes = 96;
-    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out);
+    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out,
+                M4DsssTrace* trace = nullptr);
 
    private:
     std::array<uint8_t, kMaxBits> scrambled_{};
@@ -75,7 +98,8 @@ class M4OfdmWifiDecoder {
     std::array<uint64_t, kMaxDecodedBits> survivor_{};
     std::array<uint8_t, kMaxPrefixBytes + 8> bytes_{};
 
-    bool find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1, float& cfo_step_r, float& cfo_step_i, float& score);
+    bool find_ltf(const IQ8* s, std::size_t count, std::size_t& ltf1, float& cfo_step_r,
+                  float& cfo_step_i, float& score, float& stf_score, bool& stf_admitted);
     void load_fft(const IQ8* s, std::size_t start, std::size_t origin, float cfo_step_r, float cfo_step_i);
     void fft64();
     FCpx equalized(int k) const;
@@ -136,8 +160,12 @@ class M4WifiDecoder {
             trace->frame_type = barker_score;
             trace->frame_subtype = dsss_gate_tier;
         }
-        const bool ok = dsss_.decode(samples, sample_count, out);
-        if (trace) trace->dsss_success = ok;
+        M4DsssTrace dsss_trace{};
+        const bool ok = dsss_.decode(samples, sample_count, out, &dsss_trace);
+        if (trace) {
+            trace->dsss_success = ok;
+            trace->dsss_stage_mask = dsss_trace.stage_mask;
+        }
         return ok;
     }
    private:

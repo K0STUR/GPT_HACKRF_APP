@@ -7,6 +7,7 @@
 #include "file.hpp"
 #include "capture_thread.hpp"
 #include "wifi_aim_wire.hpp"
+#include "wifi_aim/wifi_aim_phy.hpp"
 
 #include <array>
 #include <cstdint>
@@ -15,27 +16,17 @@
 
 namespace ui::external_app::wifi_aim {
 
-enum class DecodeMode : uint8_t { Off, Auto, On };
-
-struct ApEntry {
-    std::array<uint8_t,6> bssid{};
-    std::array<char,33> ssid{};
-    uint8_t ssid_len{0};
-    uint8_t channel{0};
-    int16_t last_db_x10{-1200};
-    uint32_t hits{0};
-    uint8_t phy_rate_mbps{0};
-};
-
 struct DiagCaptureMetadata {
     uint8_t channel{0};
     std::array<uint8_t, 8> ofdm_stage_hits{};
     uint8_t sq{0};
+    uint8_t stf{0};
     uint8_t lna_gain_db{0};
     uint8_t vga_gain_db{0};
     bool rf_amp{false};
     uint16_t ltf_position{0};
     int32_t cfo_hz{0};
+    uint16_t clipped_components{0};
 };
 
 class WifiAimView final : public View {
@@ -47,22 +38,11 @@ class WifiAimView final : public View {
 
    private:
     NavigationView& nav_;
-    static constexpr std::size_t kMaxAps = 32;
-    std::array<ApEntry,kMaxAps> aps_{};
-    std::size_t ap_count_{0};
-    std::size_t selected_{0};
     bool scanning_{false};
-    bool target_set_{false};
-    std::array<uint8_t,6> target_bssid_{};
-    std::array<char,33> target_ssid_{};
-    uint8_t target_ssid_len_{0};
-    uint8_t target_channel_{0};
-    DecodeMode decode_mode_{DecodeMode::Auto};
     bool decoder_enabled_{false};
     uint8_t scan_channel_{1};
     uint8_t current_channel_{1};
     uint32_t timer_ms_{0};
-    uint32_t auto_phase_ms_{0};
     bool diag_capture_active_{false};
     volatile bool diag_capture_done_{false};
     volatile uint32_t diag_capture_error_{0};
@@ -78,13 +58,11 @@ class WifiAimView final : public View {
     uint16_t scan_capture_base_{0};
     uint16_t scan_decode_base_{0};
     uint8_t diag_ack_channel_{0};
-
-    std::array<int16_t,16> target_levels_{};
-    std::size_t target_level_count_{0};
-    std::size_t target_level_pos_{0};
-    int16_t peak_x10_{-1200};
-    bool ref_valid_{false};
-    int16_t ref_x10_{-1200};
+    std::array<uint16_t, wifiaim::PROFILE_COUNTER_COUNT> profile_counts_{};
+    wifiaim::ProfilerStatsWire profile_rejected_{};
+    wifiaim::ProfilerStatsWire profile_accepted_{};
+    std::array<uint16_t, wifiaim::DSSS_STAGE_COUNT> dsss_stage_counts_{};
+    uint8_t profile_page_{0};
 
     LNAGainField field_lna{{UI_POS_X(0), UI_POS_Y(0)}};
     VGAGainField field_vga{{UI_POS_X(7), UI_POS_Y(0)}};
@@ -100,12 +78,12 @@ class WifiAimView final : public View {
     Text text_peak{{UI_POS_X(1), UI_POS_Y(11), 224,16}, "PEAK: -"};
     Text text_delta{{UI_POS_X(1), UI_POS_Y(12), 224,16}, "DELTA REF: -"};
 
-    Button button_scan{{UI_POS_X(1), UI_POS_Y(14), 70,28}, "SCAN"};
-    Button button_prev{{UI_POS_X(10), UI_POS_Y(14), 62,28}, "< AP"};
-    Button button_next{{UI_POS_X(20), UI_POS_Y(14), 62,28}, "AP >"};
-    Button button_target{{UI_POS_X(1), UI_POS_Y(17), 70,28}, "TARGET"};
-    Button button_ref{{UI_POS_X(10), UI_POS_Y(17), 62,28}, "REF"};
-    Button button_mode{{UI_POS_X(20), UI_POS_Y(17), 62,28}, "AUTO"};
+    Button button_scan{{UI_POS_X(1), UI_POS_Y(14), 70,28}, "RUN 10s"};
+    Button button_prev{{UI_POS_X(10), UI_POS_Y(14), 62,28}, "CH -"};
+    Button button_next{{UI_POS_X(20), UI_POS_Y(14), 62,28}, "CH +"};
+    Button button_target{{UI_POS_X(1), UI_POS_Y(17), 70,28}, "COUNT"};
+    Button button_ref{{UI_POS_X(10), UI_POS_Y(17), 62,28}, "REJ"};
+    Button button_mode{{UI_POS_X(20), UI_POS_Y(17), 62,28}, "ACC"};
 
     MessageHandlerRegistration frame_sync_handler_{
         Message::ID::DisplayFrameSync,
@@ -117,8 +95,6 @@ class WifiAimView final : public View {
     void tune_channel(uint8_t ch);
     void start_scan();
     void end_scan();
-    void select_target();
-    void cycle_mode();
     void on_frame_sync();
     void on_packet(const FSKRxPacketMessage* msg);
     void start_diag_capture(const wifiaim::WireApReport& wire);
@@ -128,12 +104,8 @@ class WifiAimView final : public View {
     void update_done_status();
     uint16_t scan_capture_delta() const;
     uint16_t scan_decode_delta() const;
-    void update_ap_display();
-    void update_aim_display(int16_t live_x10);
-    void push_target_level(int16_t level_x10);
-    int16_t target_average() const;
-    std::string db10(int16_t x10) const;
-    std::string mac(const std::array<uint8_t,6>& b) const;
+    void update_profile_display();
+    std::string signed_dec(int32_t value) const;
 };
 
 } // namespace ui::external_app::wifi_aim
