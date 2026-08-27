@@ -139,3 +139,61 @@ Osobno wykonać hardware run strony DSSS dla kontrolowanego long/1M oraz źród�
 2M/short, żeby potwierdzić dokładny stage drop.
 
 Pełny handover: hackrf/analysis/fix8w_hardware_2026-08-27/README.md
+
+BUILD / HARDENED CI FOLLOW-UP (RUN #58 -> #59)
+================================================
+Run #58:
+- GitHub Actions run: 33112676895
+- HEAD: f0e2d8a9a0a7e384505f134cf12bd1a41d86218c
+- stock baseline: PASS;
+- pierwszy nieudany krok: "Build modified Fix7b tree";
+- kompilacja zatrzymała się przed linkowaniem aplikacji i przed kontrolą
+  rozmiaru/regionów;
+- dokładny błąd:
+  ui_wifi_aim.hpp:63:35: error: 'DSSS_STAGE_COUNT' is not a member of 'wifiaim'
+- hardened ABI audit oraz static gate zostały pominięte, ponieważ modified
+  firmware nie skompilował się. Nie był to ABI drift, overflow ani static-gate
+  failure.
+
+Przyczyna:
+`ui_wifi_aim.hpp` przechowywał tablicę liczników o rozmiarze
+`wifiaim::DSSS_STAGE_COUNT`, ale zawierał tylko `wifi_aim_wire.hpp`.
+`DSSS_STAGE_COUNT` jest zadeklarowany w `wifi_aim/wifi_aim_phy.hpp`.
+Baseband widział tę deklarację przez własny include, natomiast nagłówek UI nie.
+
+Minimalna poprawka buildu:
+- dodano wyłącznie `#include "wifi_aim/wifi_aim_phy.hpp"` do nagłówka UI;
+- rozszerzono statyczny kontrakt Fix8w o sprawdzenie obecności tego include;
+- nie zmieniono żadnej logiki PHY, DATA/Viterbi, DSSS decoder, SERVICE ani MAC;
+- nie osłabiono i nie zmieniono hardened ABI/static audit.
+
+Commit poprawki:
+86583e569f99d6fb3a1a9c93c38e927f7713c71b
+"Fix Fix8w DSSS telemetry UI build"
+
+Run #59:
+- GitHub Actions run: 33116078626
+- wynik całego workflow: SUCCESS/PASS, czas 19m55s;
+- offline regressions: PASS;
+- stock baseline: PASS;
+- modified firmware compile/link/region check: PASS;
+- hardened ABI audit: PASS;
+- static gate: PASS.
+
+Wymagane wartości z VERIFY.txt:
+core_symbol_drift_count=0
+patch_count=0
+unresolved_count=0
+ambiguous_count=0
+final_checksum=0x00000000
+RESULT=PASS
+
+Artefakt z run #59:
+- CI artifact: wifi-aim-full-n260808-fix8v-diag;
+- oryginalna nazwa CI: A_WiFiAIM_Fix8v_DIAG.ppma;
+- publikowana nazwa etapu: A_WiFiAIM_Fix8w_DIAG.ppma;
+- rozmiar: 32160 B;
+- SHA-256:
+  a978c4ab05d95608b1648d330ef9b67f498a70ffdf4d5dcf2ad970a7d063759b
+
+PR #28 pozostaje DRAFT. Nie merge'ować przed testem sprzętowym.
