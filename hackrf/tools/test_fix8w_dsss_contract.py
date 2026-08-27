@@ -24,6 +24,7 @@ for stage in stages:
 
 assert "uint16_t dsss_stage_mask" in HPP
 assert "M4DsssTrace* trace = nullptr" in HPP
+assert '#include "wifi_aim/wifi_aim_phy.hpp"' in UI_H
 assert "std::array<uint16_t, wifiaim::DSSS_STAGE_COUNT> dsss_stage_counts_" in PROC_H
 assert "std::array<uint16_t, wifiaim::DSSS_STAGE_COUNT> dsss_stage_counts_" in UI_H
 assert "wire.ssid_len = 0xF8u" in PROC_C

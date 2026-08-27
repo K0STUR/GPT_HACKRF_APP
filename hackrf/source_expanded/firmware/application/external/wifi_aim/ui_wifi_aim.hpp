@@ -7,6 +7,7 @@
 #include "file.hpp"
 #include "capture_thread.hpp"
 #include "wifi_aim_wire.hpp"
+#include "wifi_aim/wifi_aim_phy.hpp"
 
 #include <array>
 #include <cstdint>
