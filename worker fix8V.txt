@@ -129,3 +129,87 @@ firmware zakończył się PASS:
 - SHA-256: 585B9EC41D25EFD51D93F23707A27A8C3F5446CD906CE32E5BDC878E5408B69C.
 
 PR #28 pozostaje draftem. PR #27 pozostaje niezmieniony i niezmergowany.
+
+HARDWARE HANDOVER — 2026-08-27
+==============================
+Kompletny pakiet do dalszej analizy znajduje się w:
+
+hackrf/analysis/fix8v_hardware_2026-08-27/
+
+Pakiet zawiera:
+- oryginalne WAIM_006.C8 i WAIM_006.TXT skopiowane z karty SD;
+- SHA-256 obu plików i machine-readable WAIM_006_DECODE_SUMMARY.json;
+- wszystkie 9 zdjęć stron COUNT/REJ/ACC dla CH1, CH7 i CH8;
+- pełną transkrypcję ekranów;
+- raport STF/LTF/widma i porównanie z golden IQ;
+- raport symulacji full-block versus shadow max/256 i max/128;
+- końcowy HARDWARE_VERDICT.md oraz instrukcję reprodukcji.
+
+Integralność capture:
+- WAIM_006.C8, 40 000 B:
+  2634F8D201B6CA11F81418F8DD27CFAEC8B201BBE1D80BDAF89F75AA6372666F
+- WAIM_006.TXT, 251 B:
+  F6D44C437EE7490D10FBA7615A4A7EC9F95A9813B3AFCCED47E321B25CA5B95D
+- hashe źródła na SD i kopii roboczej były identyczne.
+
+WYNIKI PROFILERA SPRZĘTOWEGO
+============================
+CH1:
+- E/256/128 = 52/213/340;
+- STF/LTF = 7/0;
+- wszystkie dalsze etapy = 0, FINAL AP = 0;
+- REJ N=52, STF 10/63/100, LTF 0/0/5, clipping 0.6%.
+
+CH7:
+- E/256/128 = 92/105/106;
+- STF/LTF = 23/0;
+- FINAL AP = 1;
+- REJ N=91, STF 10/64/100, LTF 0/2/6, clipping 0.1%.
+AP przy zerowych licznikach OFDM pochodzi z istniejącego fallbacku DSSS. To
+ujawniło brak osobnych liczników etapów DSSS w profilerze.
+
+CH8:
+- REJ N=105, STF 6/57/100, LTF 0/27/95;
+- CFO -11097/513/+12074 Hz, clipping 0.4%;
+- w WAIM_006 firmware zamroził L/H/V/P=20/20/20/20 i R/N/D/M=19/2/1/0.
+
+WAIM_006 — ROZSTRZYGAJĄCY CAPTURE
+================================
+- STF offline 98.7% przy sample 3209;
+- absolute LTF pair 85.4%, LTF sample 3385, czyli +1337 po pretriggerze 2048;
+- CFO +814 Hz, LTF repetition coherence 97.5%;
+- BW90 16.0 MHz: prawdziwa transmisja OFDM 20 MHz;
+- trigger full=966.2, pretrigger=17.2, max/256=1607.8, max/128=1689.8;
+- clipping 1/40000 komponentów (0.003%).
+
+SIGNAL dekoduje się idealnie: metric 0, RATE 6 Mb/s, LENGTH 118, poprawne
+parity/reserved/tail. DATA Viterbi dochodzi do metric 185, lecz minimalny błąd
+SERVICE wynosi 3 przy progu <=2, a otrzymany FC=0x4cf7 nie jest prawidłową
+ramką AP. Sweep 153 kandydatów CFO +/-2 kHz i timing +/-8 nie poprawił SERVICE
+i nie odzyskał poprawnego MAC. Zmiana orientacji I/Q i małe przesunięcia binów
+FFT również nie pomogły.
+
+WNIOSEK PO HARDWARE
+===================
+Występują dwa niezależne mechanizmy strat:
+
+1. CH1/CH7: większość energy captures nie zawiera prawidłowego OFDM LTF.
+   Włączenie max/256 lub max/128 zwiększyłoby głównie obciążenie false triggers;
+   nie ma podstaw do zmiany produkcyjnego triggera.
+2. CH8/WAIM_006: search geometry i synchronizacja STF/LTF z Fix8u działają.
+   Prawdziwy pakiet z LTF daleko za dawnym limitem przechodzi SIGNAL idealnie,
+   ale ginie później w hard-decision DATA/FEC/descrambling przed valid MAC.
+
+Clipping nie jest główną przyczyną przy tych gainach. Nie wolno zwiększać progu
+SERVICE ani luzować MAC gate: uzyskany nagłówek nadal jest nieprawidłowy.
+
+ZALECANY NASTĘPNY KROK
+======================
+- zachować Fix8u STF/LTF sync i Fix8t one-shot C8;
+- dodać shadow-only STF/LTF outcome counters dla max/256;
+- dodać jawne liczniki DSSS;
+- zebrać kilka kolejnych CH8 C8 dochodzących do DATA/stage 7;
+- offline porównać hard i soft DATA/Viterbi bez ruszania SIGNAL/SERVICE/MAC.
+
+Fix8v nie jest uznany za zakończony. PR #28 ma pozostać draftem i nie może być
+merge'owany przed dalszym hardware testem. PR #27 także pozostaje niezmergowany.
