@@ -112,3 +112,20 @@ BUILD/PR
 Build hardened n_260808, ABI/static audit, SHA-256 i gotowy PPMA należy uznać za
 ważne dopiero po zielonym CI. Fix8v będzie osobnym draft PR bazującym na branchu
 Fix8u. Ani Fix8u PR #27, ani Fix8v nie mogą zostać zmergowane przed hardware test.
+
+WYNIK HARDENED BUILD
+====================
+Automatyczny hardened run 33020568121 dla finalnych, identycznych źródeł
+firmware zakończył się PASS:
+
+- rozmiar A_WiFiAIM_Fix8v_DIAG.ppma: 31 096 B;
+- zapas do 32 kB: 1 672 B;
+- core_symbol_drift_count: 0;
+- drift_reference_count: 0;
+- patch_count: 0;
+- unresolved_count: 0;
+- ambiguous_count: 0;
+- final_checksum: 0x00000000;
+- SHA-256: 585B9EC41D25EFD51D93F23707A27A8C3F5446CD906CE32E5BDC878E5408B69C.
+
+PR #28 pozostaje draftem. PR #27 pozostaje niezmieniony i niezmergowany.
