@@ -1,0 +1,15 @@
+sample_rate_sps=20000000
+firmware=n_260808
+frequency_hz=2447000000
+channel=8
+lna_gain_db=32
+vga_gain_db=32
+rf_amp=0
+SQ=65
+STF=80
+clipped_components=23
+clipping_permille=0
+L/H/V/P=1/1/1/1
+R/N/D/M=1/1/1/0
+ltf_position=2591
+cfo_hz=-7909

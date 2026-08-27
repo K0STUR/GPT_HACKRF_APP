@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import binascii
 import math
 from pathlib import Path
 
@@ -89,7 +90,7 @@ def beacon_psdu(length=96):
     frame += bytes((1,4,0x82,0x84,0x8b,0x96))
     if len(frame) < length-4:
         frame += bytes(length-4-len(frame))
-    frame += b"\x00"*4
+    frame += (binascii.crc32(frame) & 0xffffffff).to_bytes(4, "little")
     return bytes(frame[:length])
 
 
@@ -114,9 +115,14 @@ def make_packet(rate_raw, length=96, seed=0x5d):
     sig_coded=interleave(conv_encode(sig),48,1)
     signal=ofdm_symbol(sig_coded,1,0)
     n_symbols=math.ceil((16+8*length+6)/n_dbps)
+    tail_start=16+8*length
     data=[0]*16+bits_lsb(psdu)+[0]*6
     data += [0]*(n_symbols*n_dbps-len(data))
     data=scramble(data,seed)
+    # IEEE DATA encoder TAIL is forced to zero after scrambling so the
+    # convolutional encoder returns to state zero at the TAIL boundary. PAD
+    # follows and can move the final symbol state away from zero again.
+    data[tail_start:tail_start+6]=[0]*6
     mother=conv_encode(data)
     tx=puncture(mother,puncture_mode)
     data_syms=[]
