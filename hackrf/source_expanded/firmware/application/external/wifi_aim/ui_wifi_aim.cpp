@@ -90,7 +90,11 @@ WifiAimView::WifiAimView(NavigationView& nav) : nav_(nav) {
     };
     button_target.on_select = [this](Button&) { profile_page_ = 0u; update_profile_display(); };
     button_ref.on_select = [this](Button&) { profile_page_ = 1u; update_profile_display(); };
-    button_mode.on_select = [this](Button&) { profile_page_ = 2u; update_profile_display(); };
+    // ACC alternates accepted-capture statistics and the Fix8w DSSS pipeline.
+    button_mode.on_select = [this](Button&) {
+        profile_page_ = profile_page_ == 2u ? 3u : 2u;
+        update_profile_display();
+    };
 }
 
 WifiAimView::~WifiAimView() {
@@ -148,6 +152,7 @@ void WifiAimView::start_scan() {
     profile_counts_.fill(0);
     profile_rejected_ = {};
     profile_accepted_ = {};
+    dsss_stage_counts_.fill(0);
     diag_capture_done_ = false;
     scanning_ = true; scan_channel_ = current_channel_; timer_ms_ = 0;
     tune_channel(current_channel_); set_decoder(true);
@@ -199,6 +204,12 @@ void WifiAimView::on_packet(const FSKRxPacketMessage* msg) {
         std::memcpy(profile_counts_.data(), w.bssid, 3u * sizeof(uint16_t));
         std::memcpy(profile_counts_.data() + 3u, w.ssid,
                     (wifiaim::PROFILE_COUNTER_COUNT - 3u) * sizeof(uint16_t));
+        update_profile_display();
+        return;
+    }
+    if ((w.flags & 0x80u) && w.ssid_len == 0xF8u) {
+        std::memcpy(dsss_stage_counts_.data(), w.ssid,
+                    wifiaim::DSSS_STAGE_COUNT * sizeof(uint16_t));
         update_profile_display();
         return;
     }
@@ -359,6 +370,22 @@ void WifiAimView::update_profile_display() {
         text_peak.set("BPR/SSID " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_BEACON_PROBE]) + "/" +
                       to_string_dec_uint(profile_counts_[wifiaim::PROFILE_SSID]));
         text_delta.set("FINAL AP " + to_string_dec_uint(profile_counts_[wifiaim::PROFILE_FINAL_AP]));
+        return;
+    }
+
+    if (profile_page_ == 3u) {
+        text_ap.set("DSSS pipeline");
+        text_bssid.set("ADM/BARK " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_ADMISSION]) + "/" +
+                       to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_BARKER_CORRELATION]));
+        text_channel.set("TIME/DIFF " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_SYMBOL_TIMING]) + "/" +
+                         to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_DIFFERENTIAL_DECODE]));
+        text_level.set("DSCR/PLCP " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_DESCRAMBLE]) + "/" +
+                       to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_PLCP_HEADER]));
+        text_avg.set("PAY/MAC " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_PAYLOAD]) + "/" +
+                     to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_MAC_TYPE]));
+        text_peak.set("BPR/SSID " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_BEACON_PROBE]) + "/" +
+                      to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_SSID]));
+        text_delta.set("DSSS AP " + to_string_dec_uint(dsss_stage_counts_[wifiaim::DSSS_FINAL_AP]));
         return;
     }
 

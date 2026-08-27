@@ -71,6 +71,7 @@ class WifiAimProcessor : public BasebandProcessor {
     bool ofdm_service_seen_{false};
     uint8_t dsss_attempts_{0};
     uint8_t dsss_successes_{0};
+    std::array<uint16_t, wifiaim::DSSS_STAGE_COUNT> dsss_stage_counts_{};
 
     wifiaim::M4WifiDecoder decoder_{};
 
@@ -81,6 +82,7 @@ class WifiAimProcessor : public BasebandProcessor {
     FskPacketData diag_packet_{};
     FskPacketData profile_rejected_packet_{};
     FskPacketData profile_accepted_packet_{};
+    FskPacketData profile_dsss_packet_{};
 
     struct EnergyPowers {
         uint32_t full{0};
@@ -103,6 +105,7 @@ class WifiAimProcessor : public BasebandProcessor {
     void fill_profile_counters(wifiaim::WireApReport& wire) const;
     void fill_profile_stats(wifiaim::WireApReport& wire, uint8_t subtype,
                             const wifiaim::ProfilerStatsWire& stats) const;
+    void fill_dsss_counters(wifiaim::WireApReport& wire) const;
     void send_profiler_snapshot();
     void fill_probe_diag(wifiaim::WireApReport& wire) const;
     void send_diag_state();

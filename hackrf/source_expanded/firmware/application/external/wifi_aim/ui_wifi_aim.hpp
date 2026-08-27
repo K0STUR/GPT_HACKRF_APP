@@ -60,6 +60,7 @@ class WifiAimView final : public View {
     std::array<uint16_t, wifiaim::PROFILE_COUNTER_COUNT> profile_counts_{};
     wifiaim::ProfilerStatsWire profile_rejected_{};
     wifiaim::ProfilerStatsWire profile_accepted_{};
+    std::array<uint16_t, wifiaim::DSSS_STAGE_COUNT> dsss_stage_counts_{};
     uint8_t profile_page_{0};
 
     LNAGainField field_lna{{UI_POS_X(0), UI_POS_Y(0)}};

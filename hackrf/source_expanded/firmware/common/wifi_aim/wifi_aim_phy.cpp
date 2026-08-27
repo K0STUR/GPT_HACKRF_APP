@@ -140,9 +140,15 @@ constexpr int kPilotBase[4] = {1,1,1,-1};
 inline int bin_for_k(int k) { return k < 0 ? 64 + k : k; }
 }  // namespace
 
-bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out) {
+bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& out,
+                                 M4DsssTrace* trace) {
     out = {};
     out.packet_db_x10 = -1200;
+    if (trace) *trace = {};
+    const auto mark = [trace](M4DsssStage stage) {
+        if (trace) trace->stage_mask |= static_cast<uint16_t>(1u << stage);
+    };
+    mark(DSSS_ADMISSION);
     if (!s || count < 5000) return false;
     const std::size_t max_chips = (count * 11u) / 20u;
 
@@ -164,6 +170,7 @@ bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& ou
                     c.q += static_cast<int32_t>(s[idx].q)*kBarker[k];
                 }
                 if (!valid) break;
+                mark(DSSS_BARKER_CORRELATION);
                 if (have_prev) {
                     const int64_t dot=static_cast<int64_t>(c.i)*prev.i+static_cast<int64_t>(c.q)*prev.q;
                     scrambled_[nb++]=(dot<0)?1u:0u;
@@ -172,12 +179,16 @@ bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& ou
                 prev=c; have_prev=true; chip+=11;
             }
             if (nb<256) continue;
+            mark(DSSS_SYMBOL_TIMING);
+            mark(DSSS_DIFFERENTIAL_DECODE);
             for (std::size_t n=0;n<nb;++n)
                 plain_[n]=(n<7)?0u:static_cast<uint8_t>((scrambled_[n]^scrambled_[n-4]^scrambled_[n-7])&1u);
+            mark(DSSS_DESCRAMBLE);
 
             for (std::size_t p=64; p+16+48+36*8<nb; ++p) {
                 if (bits16(plain_.data(),p,16)!=0xF3A0) continue;
                 const std::size_t hdr=p+16;
+                mark(DSSS_PLCP_HEADER);
                 if (bits8(plain_.data(),hdr)!=0x0A) continue;
                 const uint16_t length_us=bits16(plain_.data(),hdr+16,16);
                 if (!length_us || (length_us&7u)) continue;
@@ -188,13 +199,23 @@ bool M4LegacyWifiDecoder::decode(const IQ8* s, std::size_t count, M4ApReport& ou
                 const std::size_t nbytes=std::min({expected,avail,kMaxPrefixBytes});
                 if (nbytes<36) continue;
                 for (std::size_t j=0;j<nbytes;++j) prefix_[j]=bits8(plain_.data(),payload+j*8u);
+                mark(DSSS_PAYLOAD);
+                const uint16_t fc = le16(prefix_.data());
+                const uint8_t frame_type = static_cast<uint8_t>((fc >> 2) & 3u);
+                const uint8_t frame_subtype = static_cast<uint8_t>((fc >> 4) & 15u);
+                if (frame_type != 0u) continue;
+                mark(DSSS_MAC_TYPE);
+                if (frame_subtype != 8u && frame_subtype != 5u) continue;
+                mark(DSSS_BEACON_PROBE);
                 M4ApReport candidate{};
                 if (!parse_prefix_fixed(prefix_.data(),nbytes,candidate)) continue;
+                mark(DSSS_SSID);
                 const float avg=esum/static_cast<float>(std::max<std::size_t>(1,nb));
                 const float full=11.0f*127.0f;
                 candidate.packet_db_x10=relative_db_x10(avg/(full*full));
                 candidate.phy_rate_mbps=1;
                 out=candidate;
+                mark(DSSS_FINAL_AP);
                 return true;
             }
         }

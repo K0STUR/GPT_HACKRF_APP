@@ -41,6 +41,26 @@ struct M4OfdmTrace {
     uint8_t frame_subtype{0xFF};
     bool dsss_attempted{false};
     bool dsss_success{false};
+    uint16_t dsss_stage_mask{0};
+};
+
+enum M4DsssStage : uint8_t {
+    DSSS_ADMISSION = 0,
+    DSSS_BARKER_CORRELATION,
+    DSSS_SYMBOL_TIMING,
+    DSSS_DIFFERENTIAL_DECODE,
+    DSSS_DESCRAMBLE,
+    DSSS_PLCP_HEADER,
+    DSSS_PAYLOAD,
+    DSSS_MAC_TYPE,
+    DSSS_BEACON_PROBE,
+    DSSS_SSID,
+    DSSS_FINAL_AP,
+    DSSS_STAGE_COUNT
+};
+
+struct M4DsssTrace {
+    uint16_t stage_mask{0};
 };
 
 // Legacy 802.11b, long preamble, 1 Mbit/s DBPSK/DSSS.
@@ -48,7 +68,8 @@ class M4LegacyWifiDecoder {
    public:
     static constexpr std::size_t kMaxBits = 2048;
     static constexpr std::size_t kMaxPrefixBytes = 96;
-    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out);
+    bool decode(const IQ8* samples, std::size_t sample_count, M4ApReport& out,
+                M4DsssTrace* trace = nullptr);
 
    private:
     std::array<uint8_t, kMaxBits> scrambled_{};
@@ -139,8 +160,12 @@ class M4WifiDecoder {
             trace->frame_type = barker_score;
             trace->frame_subtype = dsss_gate_tier;
         }
-        const bool ok = dsss_.decode(samples, sample_count, out);
-        if (trace) trace->dsss_success = ok;
+        M4DsssTrace dsss_trace{};
+        const bool ok = dsss_.decode(samples, sample_count, out, &dsss_trace);
+        if (trace) {
+            trace->dsss_success = ok;
+            trace->dsss_stage_mask = dsss_trace.stage_mask;
+        }
         return ok;
     }
    private:

@@ -97,8 +97,17 @@ void sat_inc(uint16_t& value) {
 
 void WifiAimProcessor::reset_profiler() {
     profile_counts_.fill(0);
+    dsss_stage_counts_.fill(0);
     rejected_stats_ = {};
     accepted_stats_ = {};
+}
+
+void WifiAimProcessor::fill_dsss_counters(wifiaim::WireApReport& wire) const {
+    // Fix8w-DIAG subtype. Eleven uint16_t counters fit in the existing SSID
+    // payload; no WireApReport or stock message ABI changes are required.
+    wire.ssid_len = 0xF8u;
+    std::memcpy(wire.ssid, dsss_stage_counts_.data(),
+                wifiaim::DSSS_STAGE_COUNT * sizeof(uint16_t));
 }
 
 void WifiAimProcessor::update_profile_stats(wifiaim::ProfilerStatsWire& stats,
@@ -170,6 +179,12 @@ void WifiAimProcessor::send_profiler_snapshot() {
     wire.flags = 0x80u;
     fill_profile_stats(wire, 0xFDu, accepted_stats_);
     send_wire_report(wire, profile_accepted_packet_);
+
+    wire = {};
+    wire.channel = tuned_channel_;
+    wire.flags = 0x80u;
+    fill_dsss_counters(wire);
+    send_wire_report(wire, profile_dsss_packet_);
 }
 
 void WifiAimProcessor::fill_probe_diag(wifiaim::WireApReport& wire) const {
@@ -305,6 +320,10 @@ void WifiAimProcessor::finish_capture() {
     }
     if (ofdm_trace.dsss_attempted && dsss_attempts_ != 0xFFu) ++dsss_attempts_;
     if (ofdm_trace.dsss_success && dsss_successes_ != 0xFFu) ++dsss_successes_;
+    for (uint8_t stage = 0; stage < wifiaim::DSSS_STAGE_COUNT; ++stage) {
+        if (ofdm_trace.dsss_stage_mask & static_cast<uint16_t>(1u << stage))
+            sat_inc(dsss_stage_counts_[stage]);
+    }
     if (decoded) ++decode_successes_;
 
     wifiaim::WireApReport wire{};
